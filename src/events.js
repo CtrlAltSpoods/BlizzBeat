@@ -1,35 +1,61 @@
 // Lavalink + Discord event wiring.
 import { Events } from 'discord.js';
-import { client, lavalink } from './client.js';
+import { client, lavalink, playerHooks, queueHooks } from './client.js';
 import { config } from './config.js';
 import { flash, isControllerChannel, isControllerMessage, requestUpdate } from './controller.js';
 import { getSettings } from './db.js';
 import { log } from './logger.js';
-import { evaluateIdle, forgetGuild, requestSongs, UserError } from './music.js';
+import { autoplayNext, checkVotes, clearVotes, evaluateIdle, forgetGuild, requestSongs, UserError } from './music.js';
+import { dropSession, scheduleSave } from './persistence.js';
+import { clearVoiceStatus, setVoiceStatus, updatePresence } from './status.js';
 import { escapeMd, truncate } from './util/format.js';
 
 export function registerLavalinkEvents() {
+  playerHooks.autoplay = autoplayNext;
+  queueHooks.onChange = (guildId) => {
+    requestUpdate(guildId);
+    scheduleSave(guildId);
+  };
+
   lavalink.on('trackStart', (player, track) => {
     log.info(`[${player.guildId}] ▶ ${track?.info?.title ?? 'unknown'} (${track?.info?.sourceName ?? '?'})`);
+    clearVotes(player.guildId);
     evaluateIdle(player.guildId);
     requestUpdate(player.guildId);
+    scheduleSave(player.guildId);
+    setVoiceStatus(player);
+    updatePresence();
   });
   lavalink.on('trackEnd', (player) => requestUpdate(player.guildId));
   lavalink.on('queueEnd', (player) => {
     requestUpdate(player.guildId);
     evaluateIdle(player.guildId);
+    scheduleSave(player.guildId);
+    clearVoiceStatus(player.guildId, player.voiceChannelId);
+    updatePresence();
   });
   lavalink.on('playerCreate', (player) => requestUpdate(player.guildId));
-  lavalink.on('playerPaused', (player) => requestUpdate(player.guildId));
-  lavalink.on('playerResumed', (player) => requestUpdate(player.guildId));
-  lavalink.on('playerMove', (player) => {
+  const onPauseChange = (player) => {
+    requestUpdate(player.guildId);
+    scheduleSave(player.guildId);
+    updatePresence();
+  };
+  lavalink.on('playerPaused', onPauseChange);
+  lavalink.on('playerResumed', onPauseChange);
+  lavalink.on('playerMove', (player, oldChannelId) => {
+    clearVoiceStatus(player.guildId, oldChannelId);
     requestUpdate(player.guildId);
     evaluateIdle(player.guildId);
+    scheduleSave(player.guildId);
   });
   lavalink.on('playerDestroy', (player, reason) => {
     log.info(`[${player.guildId}] player destroyed (${reason ?? 'no reason'})`);
     forgetGuild(player.guildId);
+    clearVotes(player.guildId);
+    dropSession(player.guildId);
+    clearVoiceStatus(player.guildId, player.voiceChannelId);
     requestUpdate(player.guildId);
+    updatePresence();
   });
 
   lavalink.on('trackError', (player, track, payload) => {
@@ -57,9 +83,14 @@ export function registerLavalinkEvents() {
 export function registerDiscordEvents() {
   client.on(Events.Raw, (packet) => lavalink.sendRawData(packet));
 
-  client.on(Events.VoiceStateUpdate, (oldState, newState) => {
+  client.on(Events.VoiceStateUpdate, async (oldState, newState) => {
     const guildId = newState.guild.id;
-    if (lavalink.getPlayer(guildId)) evaluateIdle(guildId);
+    if (!lavalink.getPlayer(guildId)) return;
+    evaluateIdle(guildId);
+    // Fewer listeners can mean a pending skip vote now passes.
+    const passed = await checkVotes(guildId).catch(() => null);
+    if (passed) flash(guildId, passed, 6000);
+    requestUpdate(guildId);
   });
 
   // Type-to-queue: every message in the Blizzbeat channel is treated as a request, then removed.

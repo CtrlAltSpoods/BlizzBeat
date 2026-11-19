@@ -9,12 +9,13 @@ import {
   EmbedBuilder,
   PermissionFlagsBits,
   RESTJSONErrorCodes,
+  StringSelectMenuBuilder,
 } from 'discord.js';
 import { client, commandMention, lavalink, queueHooks } from './client.js';
 import { config } from './config.js';
 import { bannerDir, getSettings, updateSettings } from './db.js';
 import { log } from './logger.js';
-import { LOOP_LABEL, SEARCH_SOURCES } from './music.js';
+import { currentEffect, EFFECTS, LOOP_LABEL, SEARCH_SOURCES, voteStatus } from './music.js';
 import {
   escapeMd,
   formatDuration,
@@ -72,7 +73,7 @@ function button(id, emoji, style = ButtonStyle.Secondary, disabled = false, labe
   return b;
 }
 
-function buildComponents(player) {
+function buildComponents(player, settings) {
   const track = player?.queue.current;
   const idle = !track;
   const paused = Boolean(player?.paused);
@@ -91,8 +92,25 @@ function buildComponents(player) {
     button('volup', '🔊', ButtonStyle.Secondary, !player),
     button('shuffle', '🔀', ButtonStyle.Secondary, queued < 2),
     button('loop', loop === 'track' ? '🔂' : '🔁', loop === 'off' ? ButtonStyle.Secondary : ButtonStyle.Success, !player),
+    button('autoplay', '📻', settings.autoplay ? ButtonStyle.Success : ButtonStyle.Secondary, !player),
   );
-  return [row1, row2];
+  const effect = currentEffect(player);
+  const row3 = new ActionRowBuilder().addComponents(
+    new StringSelectMenuBuilder()
+      .setCustomId('bb:effect')
+      .setPlaceholder('🎚️ Audio effect')
+      .setDisabled(idle)
+      .addOptions(
+        Object.entries(EFFECTS).map(([value, e]) => ({
+          label: e.label,
+          value,
+          description: e.description,
+          emoji: e.emoji,
+          default: value === effect,
+        })),
+      ),
+  );
+  return [row1, row2, row3];
 }
 
 function queueContent(player) {
@@ -126,6 +144,7 @@ function idleEmbed(guildId, player, settings) {
         `Join a voice channel and **type a song name or link** in this channel, or use ${commandMention('play')}.`,
         '',
         `🔎 Searches use **${SEARCH_SOURCES[settings.searchSource] ?? settings.searchSource}**. Links from YouTube, SoundCloud${config.spotifyEnabled ? ', Spotify' : ''} and more work too.`,
+        `📻 Autoplay is **${settings.autoplay ? 'on' : 'off'}**.`,
       ].join('\n'),
     )
     .setThumbnail(client.user?.displayAvatarURL({ size: 256 }) ?? null)
@@ -161,11 +180,16 @@ function playingEmbed(player, settings) {
       ].join('\n'),
     )
     .addFields(
-      { name: 'Requested by', value: requester?.id ? `<@${requester.id}>` : 'Autoplay', inline: true },
+      { name: 'Requested by', value: requester?.id ? `<@${requester.id}>` : '📻 Autoplay', inline: true },
       { name: 'Volume', value: `${player.volume}%`, inline: true },
       { name: 'Loop', value: LOOP_LABEL[player.repeatMode] ?? 'Off', inline: true },
+      { name: 'Autoplay', value: settings.autoplay ? 'On' : 'Off', inline: true },
+      { name: 'Effect', value: `${EFFECTS[currentEffect(player)]?.label ?? 'Off'}`, inline: true },
     )
     .setFooter({ text: `${sourceLabel(info.sourceName)} · in ${player.voiceChannelId ? (client.channels.cache.get(player.voiceChannelId)?.name ?? 'voice') : 'voice'}` });
+
+  const votes = voteStatus(player);
+  if (votes) embed.addFields({ name: 'Skip votes', value: `🗳️ ${votes.count}/${votes.needed}`, inline: true });
 
   if (isUrl(info.uri)) embed.setURL(info.uri);
   const art = info.artworkUrl ?? track.pluginInfo?.artworkUrl;
@@ -186,7 +210,7 @@ function controllerPayload(guildId) {
   return {
     content: queueContent(player),
     embeds: [embed],
-    components: buildComponents(player),
+    components: buildComponents(player, settings),
     allowedMentions: { parse: [] },
   };
 }

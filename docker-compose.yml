@@ -6,6 +6,7 @@ services:
     image: blizzbeat:latest
     container_name: blizzbeat
     restart: unless-stopped
+    stop_grace_period: 20s # time to save the queue and leave voice cleanly
     env_file: .env
     volumes:
       - blizzbeat-data:/data # settings database + custom banners

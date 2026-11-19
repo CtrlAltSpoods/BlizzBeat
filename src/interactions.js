@@ -3,6 +3,7 @@ import { MessageFlags } from 'discord.js';
 import { adminCommands, runAdminCommand } from './commands/admin.js';
 import { autocompletePlay, runUserCommand, userCommands } from './commands/user.js';
 import { isControllerChannel, requestUpdate } from './controller.js';
+import { getSettings } from './db.js';
 import { log } from './logger.js';
 import * as music from './music.js';
 import { UserError } from './music.js';
@@ -19,6 +20,7 @@ const BUTTON_ACTIONS = {
   volup: 'volume',
   shuffle: 'shuffle',
   loop: 'loop',
+  autoplay: 'autoplay',
 };
 
 function friendly(err) {
@@ -33,6 +35,12 @@ async function handleButton(interaction) {
   if (!kind) return;
   await interaction.deferUpdate().catch(() => null);
   try {
+    if (action === 'skip') {
+      // Skip goes through vote-skip rules instead of the DJ check.
+      const { message, voted } = await music.skipOrVote(interaction.member);
+      if (voted) await interaction.followUp({ content: message, flags: MessageFlags.Ephemeral }).catch(() => null);
+      return;
+    }
     const player = music.assertCanControl(interaction.member, kind);
     switch (action) {
       case 'previous':
@@ -40,9 +48,6 @@ async function handleButton(interaction) {
         break;
       case 'pause':
         await music.togglePause(player);
-        break;
-      case 'skip':
-        await music.skip(player);
         break;
       case 'stop':
         await music.stop(player);
@@ -59,9 +64,34 @@ async function handleButton(interaction) {
       case 'loop':
         await music.setLoop(player);
         break;
+      case 'autoplay': {
+        const on = !getSettings(interaction.guildId).autoplay;
+        const message = music.setAutoplay(interaction.guildId, on);
+        await interaction.followUp({ content: message, flags: MessageFlags.Ephemeral }).catch(() => null);
+        if (on && !player.queue.current && !player.queue.tracks.length) {
+          const last = player.queue.previous[0];
+          if (last) {
+            await music.autoplayNext(player, last);
+            if (player.queue.tracks.length) await player.play({ paused: false });
+          }
+        }
+        break;
+      }
       default:
         break;
     }
+  } catch (err) {
+    await interaction.followUp({ content: friendly(err), flags: MessageFlags.Ephemeral }).catch(() => null);
+  } finally {
+    requestUpdate(interaction.guildId);
+  }
+}
+
+async function handleEffectMenu(interaction) {
+  await interaction.deferUpdate().catch(() => null);
+  try {
+    const player = music.assertCanControl(interaction.member, 'effect');
+    await music.applyEffect(player, interaction.values[0]);
   } catch (err) {
     await interaction.followUp({ content: friendly(err), flags: MessageFlags.Ephemeral }).catch(() => null);
   } finally {
@@ -112,5 +142,6 @@ export async function handleInteraction(interaction) {
     return;
   }
   if (interaction.isButton() && interaction.customId.startsWith('bb:')) return handleButton(interaction);
+  if (interaction.isStringSelectMenu() && interaction.customId === 'bb:effect') return handleEffectMenu(interaction);
   if (interaction.isChatInputCommand()) return handleCommand(interaction);
 }

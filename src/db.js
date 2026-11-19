@@ -15,6 +15,11 @@ db.exec(`
     data       TEXT NOT NULL,
     updated_at INTEGER NOT NULL
   );
+  CREATE TABLE IF NOT EXISTS player_sessions (
+    guild_id   TEXT PRIMARY KEY,
+    data       TEXT NOT NULL,
+    updated_at INTEGER NOT NULL
+  );
 `);
 
 const selectStmt = db.prepare('SELECT data FROM guild_settings WHERE guild_id = ?');
@@ -55,6 +60,16 @@ export function defaultSettings() {
     // Idle behaviour
     autoLeaveMinutes: d.autoLeaveMinutes,
     stay247: false,
+
+    // Playback extras
+    autoplay: false,
+    voteSkip: false,
+    voteSkipPercent: 50,
+    voiceStatus: true,
+
+    // Cooldowns in seconds (0 = off). Admins are never limited.
+    requestCooldown: d.requestCooldown,
+    controlCooldown: d.controlCooldown,
   };
 }
 
@@ -117,4 +132,34 @@ export function allConfiguredGuilds() {
 
 export function bannerDir() {
   return join(config.dataDir, 'banners');
+}
+
+/* ---------------- Player sessions (survive restarts) ---------------- */
+
+const sessionUpsert = db.prepare(`
+  INSERT INTO player_sessions (guild_id, data, updated_at) VALUES (?, ?, ?)
+  ON CONFLICT(guild_id) DO UPDATE SET data = excluded.data, updated_at = excluded.updated_at
+`);
+const sessionDelete = db.prepare('DELETE FROM player_sessions WHERE guild_id = ?');
+const sessionAll = db.prepare('SELECT guild_id, data, updated_at FROM player_sessions');
+
+export function saveSession(guildId, data) {
+  sessionUpsert.run(guildId, JSON.stringify(data), Date.now());
+}
+
+export function deleteSession(guildId) {
+  sessionDelete.run(guildId);
+}
+
+export function loadSessions() {
+  return sessionAll
+    .all()
+    .map((r) => {
+      try {
+        return { guildId: r.guild_id, updatedAt: r.updated_at, data: JSON.parse(r.data) };
+      } catch {
+        return null;
+      }
+    })
+    .filter(Boolean);
 }

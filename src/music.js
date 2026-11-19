@@ -2,8 +2,9 @@
 import { ChannelType, PermissionFlagsBits } from 'discord.js';
 import { client, lavalink, toRequester } from './client.js';
 import { config } from './config.js';
-import { getSettings } from './db.js';
+import { getSettings, updateSettings } from './db.js';
 import { log } from './logger.js';
+import { clearVoiceStatus } from './status.js';
 import { escapeMd, formatDuration, isUrl, trackDuration, truncate } from './util/format.js';
 
 /** An error whose message is safe and friendly to show to the user. */
@@ -25,6 +26,39 @@ export function isAdmin(member) {
 export function humansIn(channel) {
   if (!channel?.members) return 0;
   return channel.members.filter((m) => !m.user.bot).size;
+}
+
+/* ------------------------------ Cooldowns ------------------------------ */
+
+const cooldowns = new Map(); // `${guildId}:${userId}:${kind}` -> timestamp of last use
+
+/** Throws if the member used `kind` ('request' | 'control') too recently. Admins are exempt. */
+export function checkCooldown(member, kind) {
+  if (isAdmin(member)) return;
+  const settings = getSettings(member.guild.id);
+  const seconds = kind === 'request' ? settings.requestCooldown : settings.controlCooldown;
+  if (!seconds) return;
+  const last = cooldowns.get(`${member.guild.id}:${member.id}:${kind}`) ?? 0;
+  const left = Math.ceil((last + seconds * 1000 - Date.now()) / 1000);
+  if (left > 0) {
+    const what = kind === 'request' ? 'request another song' : 'use the controls again';
+    throw new UserError(`Slow down! You can ${what} in ${left}s.`);
+  }
+}
+
+export function touchCooldown(member, kind) {
+  if (isAdmin(member)) return;
+  cooldowns.set(`${member.guild.id}:${member.id}:${kind}`, Date.now());
+  if (cooldowns.size > 5000) {
+    const cutoff = Date.now() - 600_000;
+    for (const [key, ts] of cooldowns) if (ts < cutoff) cooldowns.delete(key);
+  }
+}
+
+/** Leaves voice, clearing the voice channel status first. */
+export async function destroyPlayer(player, reason) {
+  await clearVoiceStatus(player.guildId, player.voiceChannelId).catch(() => null);
+  await player.destroy(reason);
 }
 
 function playerChannel(player) {
@@ -52,10 +86,14 @@ export function assertCanControl(member, action) {
   if (!isAdmin(member) && member.voice?.channelId !== player.voiceChannelId) {
     throw new UserError(`Join <#${player.voiceChannelId}> to control the music.`);
   }
-  if (hasDjPower(member, player)) return player;
-  if (action === 'skip' && player.queue.current?.requester?.id === member.id) return player;
-  if (action === 'remove') return player; // own-song check happens in removeTrack
-  throw new UserError(`You need the <@&${settings.djRoleId}> role to do that.`);
+  const allowed =
+    hasDjPower(member, player) ||
+    (action === 'skip' && player.queue.current?.requester?.id === member.id) ||
+    action === 'remove'; // own-song check happens in removeTrack
+  if (!allowed) throw new UserError(`You need the <@&${settings.djRoleId}> role to do that.`);
+  checkCooldown(member, 'control');
+  touchCooldown(member, 'control');
+  return player;
 }
 
 function trackLink(track) {
@@ -75,7 +113,7 @@ async function playerFor(guild, member, textChannelId) {
     const current = playerChannel(player);
     const busy = player.queue.current || player.queue.tracks.length || humansIn(current) > 0;
     if (busy || settings.stay247) throw new UserError(`I'm already playing in <#${player.voiceChannelId}>. Join me there!`);
-    await player.destroy('MovingChannels');
+    await destroyPlayer(player, 'MovingChannels');
     player = null;
   }
 
@@ -120,6 +158,7 @@ export async function requestSongs({ guild, member, query, next = false, textCha
   if (settings.requestRoleId && !isAdmin(member) && !member.roles.cache.has(settings.requestRoleId)) {
     throw new UserError(`Only members with <@&${settings.requestRoleId}> can request songs.`);
   }
+  checkCooldown(member, 'request');
 
   const link = isUrl(text);
   if (link && SPOTIFY_LINK.test(text) && !config.spotifyEnabled) {
@@ -179,6 +218,7 @@ export async function requestSongs({ guild, member, query, next = false, textCha
   const startNow = !player.queue.current;
   await player.queue.add(tracks, next && !startNow ? 0 : undefined);
   if (startNow) await player.play({ paused: false });
+  touchCooldown(member, 'request');
   evaluateIdle(guild.id);
 
   const notes = [];
@@ -227,11 +267,13 @@ export async function skip(player, count = 1) {
   const current = player.queue.current;
   if (!current) throw new UserError('Nothing is playing.');
   if (!player.queue.tracks.length) {
-    if (player.repeatMode === 'queue') {
+    const autoplay = getSettings(player.guildId).autoplay;
+    if (player.repeatMode === 'queue' || autoplay) {
+      // Ends the song normally so loop-queue / autoplay can pick what's next.
       await player.skip(0, false);
-    } else {
-      await player.stopPlaying(true, false);
+      return `⏭️ Skipped ${trackLink(current)}.`;
     }
+    await player.stopPlaying(true, false);
     return `⏭️ Skipped ${trackLink(current)}. That was the last song.`;
   }
   const n = Math.min(Math.max(1, count), player.queue.tracks.length);
@@ -315,7 +357,7 @@ export async function clearQueue(player) {
 }
 
 export async function leave(player) {
-  await player.destroy('LeaveCommand');
+  await destroyPlayer(player, 'LeaveCommand');
   return '👋 Left the voice channel.';
 }
 
@@ -350,11 +392,180 @@ export function evaluateIdle(guildId) {
       const p = lavalink.getPlayer(guildId);
       if (!p) return;
       log.info(`Auto-leaving voice in guild ${guildId} (${nobodyListening ? 'empty channel' : 'queue finished'})`);
-      await p.destroy('AutoLeave').catch((err) => log.warn('Auto-leave failed', err));
+      await destroyPlayer(p, 'AutoLeave').catch((err) => log.warn('Auto-leave failed', err));
     }, ms),
   );
 }
 
 export function forgetGuild(guildId) {
   clearLeaveTimer(guildId);
+}
+
+/* ------------------------------ Vote-skip ------------------------------ */
+
+const votes = new Map(); // guildId -> { key, voters: Set<userId> }
+
+function trackKey(track) {
+  return track ? track.encoded ?? `${track.info.identifier}:${track.info.title}` : null;
+}
+
+export function clearVotes(guildId) {
+  votes.delete(guildId);
+}
+
+/** Current vote state for the playing song, or null when there are no votes. */
+export function voteStatus(player) {
+  const entry = votes.get(player.guildId);
+  if (!entry || entry.key !== trackKey(player.queue.current)) return null;
+  const vc = playerChannel(player);
+  const listeners = humansIn(vc);
+  const pct = getSettings(player.guildId).voteSkipPercent;
+  const needed = Math.max(1, Math.ceil((listeners * pct) / 100));
+  const count = [...entry.voters].filter((id) => vc?.members.has(id)).length;
+  return { count, needed };
+}
+
+/**
+ * Skips straight away for admins, DJs, the song's requester, or someone alone with the bot.
+ * With vote-skip on, anyone else adds a vote and the song is skipped once enough listeners agree.
+ * Returns { message, voted } where `voted` is true when only a vote was recorded.
+ */
+export async function skipOrVote(member, count = 1) {
+  const settings = getSettings(member.guild.id);
+  const player = lavalink.getPlayer(member.guild.id);
+  if (!player?.queue.current) throw new UserError('Nothing is playing.');
+  if (settings.blockedUsers.includes(member.id)) throw new UserError("You're blocked from using Blizzbeat on this server.");
+  if (!isAdmin(member) && member.voice?.channelId !== player.voiceChannelId) {
+    throw new UserError(`Join <#${player.voiceChannelId}> to skip.`);
+  }
+
+  const vc = playerChannel(player);
+  const hasRole = Boolean(settings.djRoleId && member.roles.cache.has(settings.djRoleId));
+  const alone = Boolean(vc?.members.has(member.id) && humansIn(vc) === 1);
+  const isRequester = player.queue.current.requester?.id === member.id;
+  const openControls = !settings.voteSkip && !settings.djRoleId;
+  const direct = isAdmin(member) || hasRole || alone || isRequester || openControls;
+
+  checkCooldown(member, 'control');
+  touchCooldown(member, 'control');
+
+  if (direct) return { message: await skip(player, count), voted: false };
+  if (!settings.voteSkip) throw new UserError(`You need the <@&${settings.djRoleId}> role to skip other people's songs.`);
+
+  const key = trackKey(player.queue.current);
+  let entry = votes.get(player.guildId);
+  if (!entry || entry.key !== key) {
+    entry = { key, voters: new Set() };
+    votes.set(player.guildId, entry);
+  }
+  if (entry.voters.has(member.id)) {
+    const st = voteStatus(player);
+    return { message: `🗳️ You already voted. **${st.count}/${st.needed}** votes to skip.`, voted: true };
+  }
+  entry.voters.add(member.id);
+  const passed = await checkVotes(player.guildId);
+  if (passed) return { message: passed, voted: false };
+  const st = voteStatus(player);
+  return { message: `🗳️ Vote counted: **${st.count}/${st.needed}** to skip.`, voted: true };
+}
+
+/** Skips if the vote threshold is met (also called when people leave the channel). */
+export async function checkVotes(guildId) {
+  const player = lavalink.getPlayer(guildId);
+  if (!player?.queue.current) return null;
+  const st = voteStatus(player);
+  if (!st || st.count < st.needed) return null;
+  const title = trackLink(player.queue.current);
+  clearVotes(guildId);
+  await skip(player);
+  return `⏭️ Vote passed (${st.count}/${st.needed}). Skipped ${title}.`;
+}
+
+/* ---------------------------- Audio effects ---------------------------- */
+
+export const EFFECTS = {
+  off: { label: 'Off', emoji: '🎚️', description: 'Normal sound' },
+  bassboost: { label: 'Bass boost', emoji: '💥', description: 'More low end', apply: (fm) => fm.setEQPreset('BassboostMedium') },
+  nightcore: { label: 'Nightcore', emoji: '⚡', description: 'Faster and higher', apply: (fm) => fm.toggleNightcore() },
+  vaporwave: { label: 'Slowed', emoji: '🌊', description: 'Slower and deeper', apply: (fm) => fm.toggleVaporwave() },
+  eightd: { label: '8D', emoji: '🎧', description: 'Sound circles your head', apply: (fm) => fm.toggleRotation(0.2) },
+  karaoke: { label: 'Karaoke', emoji: '🎤', description: 'Tries to remove vocals', apply: (fm) => fm.toggleKaraoke() },
+  soft: { label: 'Soft', emoji: '🌙', description: 'Muffled, late-night sound', apply: (fm) => fm.toggleLowPass(20) },
+  pop: { label: 'Pop EQ', emoji: '✨', description: 'Brighter mids and highs', apply: (fm) => fm.setEQPreset('Pop') },
+};
+
+export function currentEffect(player) {
+  return player?.getData('blizzbeat_effect') ?? 'off';
+}
+
+export async function applyEffect(player, key) {
+  const effect = EFFECTS[key];
+  if (!effect) throw new UserError('Unknown effect.');
+  const fm = player.filterManager;
+  try {
+    await fm.resetFilters();
+    if (fm.equalizerBands?.length) await fm.clearEQ();
+    if (effect.apply) await effect.apply(fm);
+  } catch (err) {
+    log.warn('Applying effect failed:', err?.message ?? err);
+    throw new UserError(`Couldn't apply that effect: ${truncate(err?.message ?? 'unknown error', 120)}`);
+  }
+  player.setData('blizzbeat_effect', key);
+  return key === 'off' ? '🎚️ Effects off.' : `${effect.emoji} **${effect.label}** effect on.`;
+}
+
+/* ------------------------------- Autoplay ------------------------------- */
+
+export const AUTOPLAY_REQUESTER = { id: null, username: 'Autoplay', displayName: 'Autoplay', avatar: null, autoplay: true };
+
+export function setAutoplay(guildId, enabled) {
+  updateSettings(guildId, { autoplay: enabled });
+  return enabled
+    ? '📻 Autoplay on: when the queue runs out I\'ll keep playing similar songs.'
+    : '📻 Autoplay off.';
+}
+
+/** lavalink-client calls this when the queue runs dry. Adds one related song if autoplay is on. */
+export async function autoplayNext(player, lastTrack) {
+  const settings = getSettings(player.guildId);
+  if (!settings.autoplay || !lastTrack?.info) return;
+  if (humansIn(playerChannel(player)) === 0) return; // nobody is listening
+
+  const recentIds = new Set(
+    [lastTrack, ...player.queue.previous].slice(0, 50).map((t) => t?.info?.identifier).filter(Boolean),
+  );
+  const recentTitles = new Set(
+    [lastTrack, ...player.queue.previous].slice(0, 50).map((t) => t?.info?.title?.toLowerCase()).filter(Boolean),
+  );
+  const maxMs = settings.maxSongMinutes > 0 ? settings.maxSongMinutes * 60_000 : 12 * 60_000;
+  const usable = (t) =>
+    !recentIds.has(t.info.identifier) &&
+    !recentTitles.has(t.info.title?.toLowerCase()) &&
+    !t.info.isStream &&
+    t.info.duration >= 60_000 &&
+    t.info.duration <= maxMs;
+
+  const attempts = [];
+  const { sourceName, identifier, author } = lastTrack.info;
+  if ((sourceName === 'youtube' || sourceName === 'youtubemusic') && identifier) {
+    // YouTube's own "mix" for this video.
+    attempts.push({ query: `https://www.youtube.com/watch?v=${identifier}&list=RD${identifier}` });
+  }
+  if (author) attempts.push({ query: author, source: 'ytmsearch' });
+  attempts.push({ query: `${lastTrack.info.title} ${author ?? ''}`.trim(), source: 'ytmsearch' });
+
+  for (const q of attempts) {
+    try {
+      const res = await player.search(q, AUTOPLAY_REQUESTER);
+      const pool = (res?.tracks ?? []).filter(usable).slice(0, 8);
+      if (!pool.length) continue;
+      const pick = pool[Math.floor(Math.random() * pool.length)];
+      await player.queue.add(pick);
+      log.info(`[${player.guildId}] autoplay picked: ${pick.info.title}`);
+      return;
+    } catch (err) {
+      log.debug('Autoplay search failed:', err?.message ?? err);
+    }
+  }
+  log.info(`[${player.guildId}] autoplay found nothing new after "${lastTrack.info.title}"`);
 }

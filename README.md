@@ -8,7 +8,13 @@ A self-hosted Discord music bot with a dedicated player channel, in the spirit o
 
 - **Player channel.** `/setup create` makes a `#blizzbeat` channel with a banner at the top and a single player message under it. The player message is **edited in place**, never re-posted. It shows the song, artwork, a progress bar, who requested it, volume, loop mode and the upcoming queue.
 - **Type to queue.** Anyone in a voice channel can type a song name or link in the Blizzbeat channel. The message is removed and the song is queued, so the channel stays clean.
-- **Buttons** on the player: ⏮️ previous, ⏯️ pause/resume, ⏭️ skip, ⏹️ stop, 🔉/🔊 volume, 🔀 shuffle, 🔁 loop.
+- **Buttons** on the player: ⏮️ previous, ⏯️ pause/resume, ⏭️ skip, ⏹️ stop, 🔉/🔊 volume, 🔀 shuffle, 🔁 loop, 📻 autoplay. Under them is an **audio effects** menu.
+- **Autoplay.** When the queue runs out, Blizzbeat keeps going with related songs (YouTube's mix for the last song, then the same artist). Toggle it with 📻 or `/autoplay`.
+- **Audio effects:** bass boost, nightcore, slowed, 8D, karaoke, soft and pop EQ.
+- **Survives restarts.** The queue, current song, position, pause state, loop and effect are saved continuously. After an update, a crash or a reboot, Blizzbeat rejoins the voice channel and carries on where it left off.
+- **Vote-skip.** Optionally, listeners vote to skip someone else's song instead of needing a DJ.
+- **Live status.** The bot shows "Listening to …" and sets the voice channel's status line to the current song.
+- **Cooldowns.** Admins set how often each person can request songs or press controls.
 - **Slash commands** for everyone (`/play` with live search suggestions) and for admins (`/setup`, `/config`).
 - **Sources:** YouTube, YouTube Music, SoundCloud, Bandcamp, Twitch, Vimeo, plus Spotify links and search once you add Spotify credentials.
 - Per-server settings are stored in SQLite and kept across restarts and updates.
@@ -41,7 +47,7 @@ Running it without Compose:
 
 ```bash
 docker build -t blizzbeat .
-docker run -d --name blizzbeat --restart unless-stopped --env-file .env \
+docker run -d --name blizzbeat --restart unless-stopped --stop-timeout 20 --env-file .env \
   -v blizzbeat-data:/data -v blizzbeat-plugins:/opt/lavalink/plugins blizzbeat
 ```
 
@@ -50,7 +56,7 @@ docker run -d --name blizzbeat --restart unless-stopped --env-file .env \
 1. Run `/setup create` to make `#blizzbeat`, or use `/setup create channel:#your-channel` to use an existing channel.
 2. Join a voice channel and type a song name in `#blizzbeat`, or use `/play`.
 
-Blizzbeat needs these permissions in its channel: View Channel, Send Messages, Embed Links, Attach Files, Read Message History and **Manage Messages** (to clean up requests). It also needs Connect and Speak in voice channels. The invite link asks for all of them.
+Blizzbeat needs these permissions in its channel: View Channel, Send Messages, Embed Links, Attach Files, Read Message History and **Manage Messages** (to clean up requests). It also needs Connect and Speak in voice channels, plus **Set Voice Channel Status** for the live status line. The invite link asks for all of them. If you invited Blizzbeat before that permission was added, give its role **Set Voice Channel Status** in Server Settings.
 
 ## Commands
 
@@ -60,7 +66,7 @@ Blizzbeat needs these permissions in its channel: View Channel, Send Messages, E
 |---|---|
 | `/play song:<name or URL> [next]` | Play or queue a song, playlist or album. Suggestions appear as you type. `next:true` puts it at the front of the queue. |
 | `/pause` `/resume` | Pause or resume |
-| `/skip [count]` | Skip one or more songs |
+| `/skip [count]` | Skip one or more songs. With vote-skip on, it adds your vote instead. |
 | `/previous` | Play the previous song again |
 | `/stop` | Stop and clear the queue (stays in the voice channel) |
 | `/queue [page]` | Show the queue |
@@ -71,6 +77,8 @@ Blizzbeat needs these permissions in its channel: View Channel, Send Messages, E
 | `/shuffle` `/clear` | Shuffle or clear the queue |
 | `/remove position` `/move from to` | Edit the queue |
 | `/leave` | Disconnect from voice |
+| `/autoplay [enabled]` | Turn autoplay on or off (toggles if left empty) |
+| `/effect name` | Bass boost, nightcore, slowed, 8D, karaoke, soft, pop EQ or off |
 | `/help` | Quick guide |
 
 Commands used inside the Blizzbeat channel reply privately so the channel stays clean.
@@ -94,6 +102,9 @@ Commands used inside the Blizzbeat channel reply privately so the channel stays 
 | `/config playlists` | Allow or block playlists and albums |
 | `/config auto-leave` | Minutes to wait before leaving when idle or alone |
 | `/config stay-247` | Stay in voice 24/7 |
+| `/config vote-skip enabled [percent]` | Listeners vote to skip other people's songs (default 50% of the channel). Admins, DJs, the requester and anyone alone with the bot skip instantly. |
+| `/config cooldowns [requests] [controls]` | Seconds each person must wait between song requests and between controls (0 = off, admins exempt). Run it with no options to see the current values. |
+| `/config voice-status` | Show the current song as the voice channel's status |
 | `/config search-source` | Where typed song names are searched: YouTube Music, YouTube, SoundCloud or Spotify |
 | `/config banner [image]` | Upload a custom banner, or leave empty to restore the default. The banner message is edited, not re-posted. |
 | `/config color` | Accent colour of the player embed |
@@ -115,6 +126,8 @@ Everything is documented in [`.env.example`](.env.example). The main settings ar
 | `YOUTUBE_PLUGIN_VERSION` | `1.18.2` | Bump this when YouTube breaks (see below) |
 | `DEFAULT_VOLUME`, `MAX_VOLUME`, `DEFAULT_MAX_QUEUE`, `DEFAULT_AUTO_LEAVE_MINUTES`, `DEFAULT_SEARCH_SOURCE` | | Starting values for new servers |
 | `PROGRESS_UPDATE_SECONDS` | `10` | How often the progress bar refreshes |
+| `DEFAULT_REQUEST_COOLDOWN`, `DEFAULT_CONTROL_COOLDOWN` | `3`, `0` | Starting cooldowns in seconds |
+| `RESTORE_MAX_AGE_MINUTES` | `60` | Don't resume queues saved longer ago than this (24/7 servers always resume) |
 | `JAVA_OPTS` | `-Xms128m -Xmx512m` | Memory for the built-in Lavalink |
 
 ## When YouTube stops working
@@ -138,10 +151,12 @@ Docker container (tini as PID 1)
     ├── src/music.js        requests, limits, permissions, controls, auto-leave
     ├── src/commands/       slash command definitions and handlers
     ├── src/events.js       Lavalink/Discord events and type-to-queue
-    └── src/db.js           per-server settings (node:sqlite at /data/blizzbeat.sqlite)
+    ├── src/persistence.js  saves player sessions and restores them on boot
+    ├── src/status.js       "Listening to" presence and voice channel status
+    └── src/db.js           settings + sessions (node:sqlite at /data/blizzbeat.sqlite)
 ```
 
-`docker/entrypoint.sh` writes Lavalink's `application.yml` from your environment variables, starts Lavalink, waits for it to be ready, and then starts the bot. If either process dies, the container exits and Docker restarts it. The health check confirms that Lavalink responds and that the bot has a live Discord connection.
+`docker/entrypoint.sh` writes Lavalink's `application.yml` from your environment variables, starts Lavalink, waits for it to be ready, and then starts the bot. If either process dies, the container exits and Docker restarts it. On `docker compose down` or a restart, the bot is stopped first so it can save every queue and leave voice before Lavalink shuts down. The health check confirms that Lavalink responds and that the bot has a live Discord connection.
 
 The banner and avatar are generated by `assets/src/make_banner.py`. Edit that script and re-render to change the default artwork.
 
