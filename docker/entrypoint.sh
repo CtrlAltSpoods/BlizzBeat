@@ -39,7 +39,11 @@ LAVALINK_PID=$!
 
 shutdown() {
   log "Stopping..."
-  kill -TERM "${BOT_PID:-}" 2>/dev/null || true
+  # Stop the bot first so it can save the queue and leave voice while Lavalink is still up.
+  if [[ -n "${BOT_PID:-}" ]]; then
+    kill -TERM "$BOT_PID" 2>/dev/null || true
+    for _ in $(seq 1 18); do kill -0 "$BOT_PID" 2>/dev/null || break; sleep 0.5; done
+  fi
   kill -TERM "$LAVALINK_PID" 2>/dev/null || true
   wait || true
   exit 0

@@ -81,6 +81,24 @@ export const userCommands = [
   ),
   guildOnly(new SlashCommandBuilder().setName('clear').setDescription('Clear the queue (keeps the current song)')),
   guildOnly(new SlashCommandBuilder().setName('leave').setDescription('Disconnect Blizzbeat from voice')),
+  guildOnly(
+    new SlashCommandBuilder()
+      .setName('autoplay')
+      .setDescription('Keep playing similar songs when the queue runs out')
+      .addBooleanOption((o) => o.setName('enabled').setDescription('Turn autoplay on or off (leave empty to toggle)')),
+  ),
+  guildOnly(
+    new SlashCommandBuilder()
+      .setName('effect')
+      .setDescription('Apply an audio effect')
+      .addStringOption((o) =>
+        o
+          .setName('name')
+          .setDescription('Effect')
+          .setRequired(true)
+          .addChoices(...Object.entries(music.EFFECTS).map(([value, e]) => ({ name: `${e.emoji} ${e.label}`, value }))),
+      ),
+  ),
   guildOnly(new SlashCommandBuilder().setName('help').setDescription('How to use Blizzbeat')),
 ];
 
@@ -136,7 +154,20 @@ export async function runUserCommand(interaction, flags) {
     case 'resume':
       return { content: await music.resume(music.assertCanControl(member, 'pause')) };
     case 'skip':
-      return { content: await music.skip(music.assertCanControl(member, 'skip'), options.getInteger('count') ?? 1) };
+      return { content: (await music.skipOrVote(member, options.getInteger('count') ?? 1)).message };
+    case 'autoplay': {
+      const player = music.assertCanControl(member, 'autoplay');
+      const wanted = options.getBoolean('enabled');
+      const on = wanted ?? !getSettings(guild.id).autoplay;
+      const content = music.setAutoplay(guild.id, on);
+      if (on && !player.queue.current && !player.queue.tracks.length && player.queue.previous[0]) {
+        await music.autoplayNext(player, player.queue.previous[0]);
+        if (player.queue.tracks.length) await player.play({ paused: false });
+      }
+      return { content };
+    }
+    case 'effect':
+      return { content: await music.applyEffect(music.assertCanControl(member, 'effect'), options.getString('name', true)) };
     case 'previous':
       return { content: await music.previous(music.assertCanControl(member, 'previous')) };
     case 'stop':
@@ -209,6 +240,7 @@ function helpEmbed(guildId) {
           `${commandMention('play')} song name or URL`,
           `${commandMention('pause')} ${commandMention('resume')} ${commandMention('skip')} ${commandMention('previous')} ${commandMention('stop')}`,
           `${commandMention('volume')} ${commandMention('seek')} ${commandMention('loop')} ${commandMention('leave')}`,
+          `${commandMention('autoplay')} ${commandMention('effect')}`,
         ].join('\n'),
       },
       {

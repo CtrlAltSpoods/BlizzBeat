@@ -14,6 +14,7 @@ import { config } from '../config.js';
 import { bannerDir, getSettings, resetSettings, updateSettings } from '../db.js';
 import { missingChannelPerms, refreshBanner, removeSetup, repost, requestUpdate, setupChannel } from '../controller.js';
 import { evaluateIdle, isAdmin, SEARCH_SOURCES, UserError } from '../music.js';
+import { clearVoiceStatus, setVoiceStatus } from '../status.js';
 import { parseHexColor } from '../util/format.js';
 
 const admin = (b) => b.setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild).setContexts(InteractionContextType.Guild);
@@ -137,6 +138,32 @@ export const adminCommands = [
       )
       .addSubcommand((s) =>
         s
+          .setName('vote-skip')
+          .setDescription('Let listeners vote to skip songs instead of needing the DJ role')
+          .addBooleanOption((o) => o.setName('enabled').setDescription('Vote-skip on/off').setRequired(true))
+          .addIntegerOption((o) =>
+            o.setName('percent').setDescription('Share of listeners needed to skip (default 50)').setMinValue(1).setMaxValue(100),
+          ),
+      )
+      .addSubcommand((s) =>
+        s
+          .setName('cooldowns')
+          .setDescription('Per-person cooldowns in seconds (0 = off, admins are exempt)')
+          .addIntegerOption((o) =>
+            o.setName('requests').setDescription('Seconds between song requests').setMinValue(0).setMaxValue(600),
+          )
+          .addIntegerOption((o) =>
+            o.setName('controls').setDescription('Seconds between button/command controls').setMinValue(0).setMaxValue(600),
+          ),
+      )
+      .addSubcommand((s) =>
+        s
+          .setName('voice-status')
+          .setDescription("Show the current song as the voice channel's status")
+          .addBooleanOption((o) => o.setName('enabled').setDescription('Voice channel status on/off').setRequired(true)),
+      )
+      .addSubcommand((s) =>
+        s
           .setName('search-source')
           .setDescription('Where song names are searched')
           .addStringOption((o) => o.setName('source').setDescription('Search source').setRequired(true).addChoices(...sourceChoices)),
@@ -256,6 +283,14 @@ function settingsEmbed(guildId) {
       { name: 'Playlists', value: s.allowPlaylists ? 'Allowed' : 'Blocked', inline: true },
       { name: 'Auto-leave', value: s.stay247 ? 'Off (24/7)' : `${s.autoLeaveMinutes} min`, inline: true },
       { name: 'Banner', value: s.customBanner ? 'Custom' : 'Default', inline: true },
+      { name: 'Autoplay', value: s.autoplay ? 'On' : 'Off', inline: true },
+      { name: 'Vote-skip', value: s.voteSkip ? `On (${s.voteSkipPercent}%)` : 'Off', inline: true },
+      { name: 'Voice status', value: s.voiceStatus ? 'On' : 'Off', inline: true },
+      {
+        name: 'Cooldowns',
+        value: `Requests: ${s.requestCooldown ? `${s.requestCooldown}s` : 'off'} · Controls: ${s.controlCooldown ? `${s.controlCooldown}s` : 'off'}`,
+        inline: true,
+      },
       { name: 'Blocked users', value: s.blockedUsers.length ? s.blockedUsers.map((id) => `<@${id}>`).join(', ') : 'None' },
     );
 }
@@ -401,6 +436,39 @@ async function runConfig(interaction) {
       updateSettings(gid, { stay247: on });
       evaluateIdle(gid);
       reply = on ? '🌙 24/7 mode on: I stay in voice even when nothing is playing.' : '🌙 24/7 mode off: I leave when idle.';
+      break;
+    }
+    case 'vote-skip': {
+      const on = options.getBoolean('enabled', true);
+      const pct = options.getInteger('percent') ?? s.voteSkipPercent;
+      updateSettings(gid, { voteSkip: on, voteSkipPercent: pct });
+      reply = on
+        ? `🗳️ Vote-skip on: skipping someone else's song needs **${pct}%** of listeners. Admins${s.djRoleId ? ', DJs' : ''} and the requester skip instantly.`
+        : `🗳️ Vote-skip off.${s.djRoleId ? ' Only DJs (and requesters) can skip.' : ' Anyone in the voice channel can skip.'}`;
+      break;
+    }
+    case 'cooldowns': {
+      const requests = options.getInteger('requests');
+      const controls = options.getInteger('controls');
+      const patch = {};
+      if (requests !== null) patch.requestCooldown = requests;
+      if (controls !== null) patch.controlCooldown = controls;
+      const next = updateSettings(gid, patch);
+      const fmt = (n) => (n ? `**${n}s**` : '**off**');
+      reply = `⏱️ Cooldowns: song requests ${fmt(next.requestCooldown)}, controls ${fmt(next.controlCooldown)}. Admins are never limited.`;
+      break;
+    }
+    case 'voice-status': {
+      const on = options.getBoolean('enabled', true);
+      updateSettings(gid, { voiceStatus: on });
+      const player = lavalink.getPlayer(gid);
+      if (player) {
+        if (on) await setVoiceStatus(player);
+        else await clearVoiceStatus(gid, player.voiceChannelId);
+      }
+      reply = on
+        ? '📢 The voice channel status will show the current song. (Needs the **Set Voice Channel Status** permission.)'
+        : '📢 Voice channel status off.';
       break;
     }
     case 'search-source': {

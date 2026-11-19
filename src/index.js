@@ -8,6 +8,9 @@ import { allConfiguredGuilds } from './db.js';
 import { registerDiscordEvents, registerLavalinkEvents } from './events.js';
 import { allCommands, handleInteraction } from './interactions.js';
 import { log } from './logger.js';
+import { destroyPlayer } from './music.js';
+import { markShuttingDown, restoreSessions, saveAll, startAutosave } from './persistence.js';
+import { SET_VOICE_STATUS, updatePresence } from './status.js';
 
 assertConfig();
 
@@ -16,6 +19,11 @@ process.on('uncaughtException', (err) => log.error('Uncaught exception:', err));
 
 registerLavalinkEvents();
 registerDiscordEvents();
+
+// Once Lavalink is connected, resume whatever was playing before the last restart.
+lavalink.nodeManager.on('connect', () => {
+  setTimeout(() => restoreSessions().catch((err) => log.error('Session restore failed:', err)), 1500);
+});
 
 client.on(Events.InteractionCreate, (interaction) =>
   handleInteraction(interaction).catch((err) => log.error('Interaction failed:', err)),
@@ -60,6 +68,8 @@ client.once(Events.ClientReady, async (ready) => {
   }
 
   startProgressTicker();
+  startAutosave();
+  updatePresence();
   for (const { guildId } of allConfiguredGuilds()) {
     if (ready.guilds.cache.has(guildId)) requestUpdate(guildId);
   }
@@ -77,6 +87,7 @@ client.once(Events.ClientReady, async (ready) => {
     PermissionFlagsBits.ManageChannels,
     PermissionFlagsBits.Connect,
     PermissionFlagsBits.Speak,
+    SET_VOICE_STATUS,
   ]);
   const invite = ready.generateInvite({
     scopes: [OAuth2Scopes.Bot, OAuth2Scopes.ApplicationsCommands],
@@ -93,7 +104,10 @@ async function shutdown(signal) {
   const force = setTimeout(() => process.exit(0), 8000);
   force.unref();
   try {
-    await Promise.allSettled([...lavalink.players.values()].map((p) => p.destroy('Shutdown')));
+    // Save first so the queue comes back after the restart, then leave voice cleanly.
+    markShuttingDown();
+    saveAll();
+    await Promise.allSettled([...lavalink.players.values()].map((p) => destroyPlayer(p, 'Shutdown')));
     await client.destroy();
   } finally {
     process.exit(0);

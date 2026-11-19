@@ -56,7 +56,12 @@ export const config = {
     autoLeaveMinutes: int('DEFAULT_AUTO_LEAVE_MINUTES', 5, { min: 0, max: 1440 }),
     searchSource: str('DEFAULT_SEARCH_SOURCE', 'ytmsearch'),
     embedColor: hexColor(str('DEFAULT_EMBED_COLOR', '5BC0F8')),
+    requestCooldown: int('DEFAULT_REQUEST_COOLDOWN', 3, { min: 0, max: 600 }),
+    controlCooldown: int('DEFAULT_CONTROL_COOLDOWN', 0, { min: 0, max: 600 }),
   },
+
+  // Ignore saved sessions older than this when restoring after a restart (minutes).
+  restoreMaxAgeMinutes: int('RESTORE_MAX_AGE_MINUTES', 60, { min: 0, max: 10080 }),
 
   logLevel: str('LOG_LEVEL', 'info'),
 };

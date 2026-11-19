@@ -37,6 +37,9 @@ export function commandMention(name, sub) {
   return id ? `</${full}:${id}>` : `\`/${full}\``;
 }
 
+/** Set at startup (events.js) so lavalink-client can ask Blizzbeat for an autoplay song. */
+export const playerHooks = { autoplay: async (_player, _lastTrack) => {} };
+
 /** Set by the controller so any queue change refreshes the player embed. */
 export const queueHooks = { onChange: (_guildId) => {} };
 
@@ -75,7 +78,10 @@ export const lavalink = new LavalinkManager({
     requesterTransformer: (r) => (r && typeof r === 'object' && 'id' in r && 'displayName' in r ? r : toRequester(r)),
     onDisconnect: { autoReconnect: false, destroyPlayer: true },
     // Blizzbeat manages its own idle / auto-leave timers per server.
-    onEmptyQueue: { destroyAfterMs: undefined },
+    onEmptyQueue: {
+      destroyAfterMs: undefined,
+      autoPlayFunction: (player, lastTrack) => playerHooks.autoplay(player, lastTrack),
+    },
     useUnresolvedData: true,
     maxErrorsPerTime: { threshold: 10_000, maxAmount: 3 },
   },
