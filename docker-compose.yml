@@ -1,0 +1,21 @@
+services:
+  blizzbeat:
+    build: .
+    # Or use the image built by GitHub Actions instead of building locally:
+    # image: ghcr.io/ctrlaltspoods/blizzbeat:latest
+    image: blizzbeat:latest
+    container_name: blizzbeat
+    restart: unless-stopped
+    env_file: .env
+    volumes:
+      - blizzbeat-data:/data # settings database + custom banners
+      - blizzbeat-plugins:/opt/lavalink/plugins # cached Lavalink plugins
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"
+
+volumes:
+  blizzbeat-data:
+  blizzbeat-plugins:

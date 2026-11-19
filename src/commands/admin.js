@@ -1,0 +1,453 @@
+// Server admin commands: /setup and /config. Require "Manage Server" by default.
+import { existsSync, unlinkSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
+import {
+  ChannelType,
+  EmbedBuilder,
+  InteractionContextType,
+  MessageFlags,
+  PermissionFlagsBits,
+  SlashCommandBuilder,
+} from 'discord.js';
+import { commandMention, lavalink } from '../client.js';
+import { config } from '../config.js';
+import { bannerDir, getSettings, resetSettings, updateSettings } from '../db.js';
+import { missingChannelPerms, refreshBanner, removeSetup, repost, requestUpdate, setupChannel } from '../controller.js';
+import { evaluateIdle, isAdmin, SEARCH_SOURCES, UserError } from '../music.js';
+import { parseHexColor } from '../util/format.js';
+
+const admin = (b) => b.setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild).setContexts(InteractionContextType.Guild);
+
+const sourceChoices = Object.entries(SEARCH_SOURCES).map(([value, name]) => ({ name, value }));
+
+export const adminCommands = [
+  admin(
+    new SlashCommandBuilder()
+      .setName('setup')
+      .setDescription('Set up the Blizzbeat player channel')
+      .addSubcommand((s) =>
+        s
+          .setName('create')
+          .setDescription('Create (or pick) the Blizzbeat channel and post the player')
+          .addChannelOption((o) =>
+            o
+              .setName('channel')
+              .setDescription('Use an existing text channel (leave empty to create #blizzbeat)')
+              .addChannelTypes(ChannelType.GuildText),
+          ),
+      )
+      .addSubcommand((s) => s.setName('refresh').setDescription('Re-post the banner and player at the bottom of the channel'))
+      .addSubcommand((s) => s.setName('remove').setDescription('Remove the Blizzbeat player from its channel')),
+  ),
+  admin(
+    new SlashCommandBuilder()
+      .setName('config')
+      .setDescription('Blizzbeat server settings')
+      .addSubcommand((s) => s.setName('view').setDescription('Show all settings'))
+      .addSubcommand((s) =>
+        s
+          .setName('default-volume')
+          .setDescription('Volume Blizzbeat starts at when it joins')
+          .addIntegerOption((o) => o.setName('volume').setDescription('1-200').setRequired(true).setMinValue(1).setMaxValue(200)),
+      )
+      .addSubcommand((s) =>
+        s
+          .setName('max-volume')
+          .setDescription('Highest volume users can set')
+          .addIntegerOption((o) => o.setName('volume').setDescription('1-200').setRequired(true).setMinValue(1).setMaxValue(200)),
+      )
+      .addSubcommandGroup((g) =>
+        g
+          .setName('voice-channels')
+          .setDescription('Limit which voice channels Blizzbeat can join')
+          .addSubcommand((s) =>
+            s
+              .setName('allow')
+              .setDescription('Allow a voice channel (once any are allowed, only those can be used)')
+              .addChannelOption((o) =>
+                o
+                  .setName('channel')
+                  .setDescription('Voice channel')
+                  .setRequired(true)
+                  .addChannelTypes(ChannelType.GuildVoice, ChannelType.GuildStageVoice),
+              ),
+          )
+          .addSubcommand((s) =>
+            s
+              .setName('disallow')
+              .setDescription('Remove a voice channel from the allowed list')
+              .addChannelOption((o) =>
+                o
+                  .setName('channel')
+                  .setDescription('Voice channel')
+                  .setRequired(true)
+                  .addChannelTypes(ChannelType.GuildVoice, ChannelType.GuildStageVoice),
+              ),
+          )
+          .addSubcommand((s) => s.setName('list').setDescription('Show the allowed voice channels'))
+          .addSubcommand((s) => s.setName('clear').setDescription('Allow every voice channel again')),
+      )
+      .addSubcommand((s) =>
+        s
+          .setName('dj-role')
+          .setDescription('Only this role can skip/stop/etc. (leave empty to let everyone)')
+          .addRoleOption((o) => o.setName('role').setDescription('DJ role')),
+      )
+      .addSubcommand((s) =>
+        s
+          .setName('request-role')
+          .setDescription('Only this role can add songs (leave empty to let everyone)')
+          .addRoleOption((o) => o.setName('role').setDescription('Role allowed to request')),
+      )
+      .addSubcommand((s) =>
+        s
+          .setName('queue-limit')
+          .setDescription('Maximum songs in the queue')
+          .addIntegerOption((o) => o.setName('songs').setDescription('1-5000').setRequired(true).setMinValue(1).setMaxValue(5000)),
+      )
+      .addSubcommand((s) =>
+        s
+          .setName('user-limit')
+          .setDescription('Maximum queued songs per person (0 = no limit)')
+          .addIntegerOption((o) => o.setName('songs').setDescription('0-5000').setRequired(true).setMinValue(0).setMaxValue(5000)),
+      )
+      .addSubcommand((s) =>
+        s
+          .setName('song-length')
+          .setDescription('Longest song allowed, in minutes (0 = no limit)')
+          .addIntegerOption((o) => o.setName('minutes').setDescription('0-1440').setRequired(true).setMinValue(0).setMaxValue(1440)),
+      )
+      .addSubcommand((s) =>
+        s
+          .setName('playlists')
+          .setDescription('Allow or block whole playlists/albums')
+          .addBooleanOption((o) => o.setName('enabled').setDescription('Allow playlists').setRequired(true)),
+      )
+      .addSubcommand((s) =>
+        s
+          .setName('auto-leave')
+          .setDescription('Minutes to wait before leaving when idle or alone (0 = right away)')
+          .addIntegerOption((o) => o.setName('minutes').setDescription('0-1440').setRequired(true).setMinValue(0).setMaxValue(1440)),
+      )
+      .addSubcommand((s) =>
+        s
+          .setName('stay-247')
+          .setDescription('Stay in voice even when nothing is playing')
+          .addBooleanOption((o) => o.setName('enabled').setDescription('24/7 mode').setRequired(true)),
+      )
+      .addSubcommand((s) =>
+        s
+          .setName('search-source')
+          .setDescription('Where song names are searched')
+          .addStringOption((o) => o.setName('source').setDescription('Search source').setRequired(true).addChoices(...sourceChoices)),
+      )
+      .addSubcommand((s) =>
+        s
+          .setName('banner')
+          .setDescription('Change the banner image (leave empty to restore the default)')
+          .addAttachmentOption((o) => o.setName('image').setDescription('PNG, JPG, GIF or WebP, up to 8 MB')),
+      )
+      .addSubcommand((s) =>
+        s
+          .setName('color')
+          .setDescription('Embed accent colour')
+          .addStringOption((o) => o.setName('hex').setDescription('e.g. #5BC0F8').setRequired(true).setMaxLength(7)),
+      )
+      .addSubcommandGroup((g) =>
+        g
+          .setName('blocklist')
+          .setDescription('Stop people from using Blizzbeat')
+          .addSubcommand((s) =>
+            s
+              .setName('add')
+              .setDescription('Block a user')
+              .addUserOption((o) => o.setName('user').setDescription('User').setRequired(true)),
+          )
+          .addSubcommand((s) =>
+            s
+              .setName('remove')
+              .setDescription('Unblock a user')
+              .addUserOption((o) => o.setName('user').setDescription('User').setRequired(true)),
+          )
+          .addSubcommand((s) => s.setName('list').setDescription('Show blocked users')),
+      )
+      .addSubcommand((s) => s.setName('reset').setDescription('Reset all settings to defaults (keeps the channel)')),
+  ),
+];
+
+/* ------------------------------ Handlers ------------------------------ */
+
+async function runSetup(interaction) {
+  const { guild } = interaction;
+  const sub = interaction.options.getSubcommand();
+
+  if (sub === 'remove') {
+    await removeSetup(guild);
+    return { content: '🧹 Removed the Blizzbeat player. The channel itself was left alone.' };
+  }
+
+  if (sub === 'refresh') {
+    const ok = await repost(guild.id);
+    if (!ok) throw new UserError(`There's no Blizzbeat channel yet. Use ${commandMention('setup', 'create')}.`);
+    return { content: '🔄 Re-posted the banner and player.' };
+  }
+
+  // create
+  let channel = interaction.options.getChannel('channel');
+  if (!channel) {
+    const me = guild.members.me;
+    if (!me.permissions.has(PermissionFlagsBits.ManageChannels)) {
+      throw new UserError('I need the **Manage Channels** permission to create a channel, or pick an existing one with the `channel` option.');
+    }
+    channel = await guild.channels.create({
+      name: 'blizzbeat',
+      type: ChannelType.GuildText,
+      topic: '🎵 Type a song name or link here to play it. Use the buttons on the player to control the music.',
+      parent: interaction.channel?.parentId ?? undefined,
+      permissionOverwrites: [
+        {
+          id: me.id,
+          allow: [
+            PermissionFlagsBits.ViewChannel,
+            PermissionFlagsBits.SendMessages,
+            PermissionFlagsBits.EmbedLinks,
+            PermissionFlagsBits.AttachFiles,
+            PermissionFlagsBits.ReadMessageHistory,
+            PermissionFlagsBits.ManageMessages,
+          ],
+        },
+      ],
+      reason: `Blizzbeat setup by ${interaction.user.tag}`,
+    });
+  }
+
+  const missing = missingChannelPerms(channel);
+  if (missing.length) {
+    throw new UserError(`I'm missing these permissions in ${channel}: **${missing.join(', ')}**.`);
+  }
+
+  await setupChannel(guild, channel);
+  const notes = [];
+  if (!config.messageContent) {
+    notes.push('⚠️ Typing song names in the channel is disabled (`ENABLE_MESSAGE_CONTENT=false`). Members can still use `/play`.');
+  }
+  return {
+    content: [`✅ Blizzbeat is ready in ${channel}! Type a song name there to start.`, ...notes].join('\n'),
+  };
+}
+
+function settingsEmbed(guildId) {
+  const s = getSettings(guildId);
+  const list = (ids, fmt) => (ids.length ? ids.map(fmt).join(', ') : 'Any');
+  return new EmbedBuilder()
+    .setColor(s.embedColor)
+    .setTitle('Blizzbeat settings')
+    .addFields(
+      { name: 'Player channel', value: s.channelId ? `<#${s.channelId}>` : 'Not set up', inline: true },
+      { name: 'Default volume', value: `${s.defaultVolume}%`, inline: true },
+      { name: 'Max volume', value: `${s.maxVolume}%`, inline: true },
+      { name: 'Voice channels', value: list(s.allowedVoiceChannels, (id) => `<#${id}>`), inline: false },
+      { name: 'DJ role', value: s.djRoleId ? `<@&${s.djRoleId}>` : 'Everyone', inline: true },
+      { name: 'Request role', value: s.requestRoleId ? `<@&${s.requestRoleId}>` : 'Everyone', inline: true },
+      { name: 'Search source', value: SEARCH_SOURCES[s.searchSource] ?? s.searchSource, inline: true },
+      { name: 'Queue limit', value: String(s.maxQueue), inline: true },
+      { name: 'Per-user limit', value: s.maxPerUser ? String(s.maxPerUser) : 'None', inline: true },
+      { name: 'Max song length', value: s.maxSongMinutes ? `${s.maxSongMinutes} min` : 'None', inline: true },
+      { name: 'Playlists', value: s.allowPlaylists ? 'Allowed' : 'Blocked', inline: true },
+      { name: 'Auto-leave', value: s.stay247 ? 'Off (24/7)' : `${s.autoLeaveMinutes} min`, inline: true },
+      { name: 'Banner', value: s.customBanner ? 'Custom' : 'Default', inline: true },
+      { name: 'Blocked users', value: s.blockedUsers.length ? s.blockedUsers.map((id) => `<@${id}>`).join(', ') : 'None' },
+    );
+}
+
+const BANNER_TYPES = { 'image/png': '.png', 'image/jpeg': '.jpg', 'image/gif': '.gif', 'image/webp': '.webp' };
+
+async function setBanner(guildId, attachment) {
+  const current = getSettings(guildId).customBanner;
+  const removeOld = () => {
+    if (current && existsSync(join(bannerDir(), current))) unlinkSync(join(bannerDir(), current));
+  };
+
+  if (!attachment) {
+    removeOld();
+    updateSettings(guildId, { customBanner: null });
+    await refreshBanner(guildId);
+    return '🖼️ Banner reset to the Blizzbeat default.';
+  }
+
+  const type = (attachment.contentType ?? '').split(';')[0].trim();
+  const ext = BANNER_TYPES[type];
+  if (!ext) throw new UserError('The banner must be a PNG, JPG, GIF or WebP image.');
+  if (attachment.size > 8 * 1024 * 1024) throw new UserError('That image is over 8 MB.');
+
+  const res = await fetch(attachment.url);
+  if (!res.ok) throw new UserError("I couldn't download that image. Try uploading it again.");
+  const bytes = Buffer.from(await res.arrayBuffer());
+
+  removeOld();
+  const fileName = `${guildId}${ext}`;
+  writeFileSync(join(bannerDir(), fileName), bytes);
+  updateSettings(guildId, { customBanner: fileName });
+  const shown = await refreshBanner(guildId);
+  return shown ? '🖼️ Banner updated.' : `🖼️ Banner saved. It will show once you run ${commandMention('setup', 'create')}.`;
+}
+
+async function runConfig(interaction) {
+  const { guild, options } = interaction;
+  const group = options.getSubcommandGroup(false);
+  const sub = options.getSubcommand();
+  const gid = guild.id;
+  const s = getSettings(gid);
+  let reply;
+
+  if (group === 'voice-channels') {
+    const ch = options.getChannel('channel');
+    if (sub === 'allow') {
+      updateSettings(gid, { allowedVoiceChannels: [...new Set([...s.allowedVoiceChannels, ch.id])] });
+      reply = `✅ ${ch} added. Blizzbeat can now only join: ${getSettings(gid).allowedVoiceChannels.map((id) => `<#${id}>`).join(', ')}`;
+    } else if (sub === 'disallow') {
+      const next = s.allowedVoiceChannels.filter((id) => id !== ch.id);
+      updateSettings(gid, { allowedVoiceChannels: next });
+      reply = next.length ? `✅ ${ch} removed. Allowed: ${next.map((id) => `<#${id}>`).join(', ')}` : `✅ ${ch} removed. Blizzbeat can join any voice channel again.`;
+    } else if (sub === 'clear') {
+      updateSettings(gid, { allowedVoiceChannels: [] });
+      reply = '✅ Blizzbeat can join any voice channel.';
+    } else {
+      reply = s.allowedVoiceChannels.length
+        ? `🎧 Allowed voice channels: ${s.allowedVoiceChannels.map((id) => `<#${id}>`).join(', ')}`
+        : '🎧 Blizzbeat can join any voice channel.';
+    }
+    return { content: reply };
+  }
+
+  if (group === 'blocklist') {
+    if (sub === 'list') {
+      return { content: s.blockedUsers.length ? `🚫 Blocked: ${s.blockedUsers.map((id) => `<@${id}>`).join(', ')}` : '🚫 Nobody is blocked.' };
+    }
+    const user = options.getUser('user', true);
+    if (sub === 'add') {
+      if (user.bot) throw new UserError("Bots can't use Blizzbeat anyway.");
+      updateSettings(gid, { blockedUsers: [...new Set([...s.blockedUsers, user.id])] });
+      return { content: `🚫 ${user} can no longer use Blizzbeat here.` };
+    }
+    updateSettings(gid, { blockedUsers: s.blockedUsers.filter((id) => id !== user.id) });
+    return { content: `✅ ${user} can use Blizzbeat again.` };
+  }
+
+  switch (sub) {
+    case 'view':
+      return { embeds: [settingsEmbed(gid)] };
+    case 'default-volume': {
+      const v = options.getInteger('volume', true);
+      if (v > s.maxVolume) throw new UserError(`That's above the max volume (${s.maxVolume}%). Raise it with ${commandMention('config', 'max-volume')} first.`);
+      updateSettings(gid, { defaultVolume: v });
+      reply = `🔊 Default volume set to **${v}%** (used next time Blizzbeat joins).`;
+      break;
+    }
+    case 'max-volume': {
+      const v = options.getInteger('volume', true);
+      updateSettings(gid, { maxVolume: v, defaultVolume: Math.min(s.defaultVolume, v) });
+      const player = lavalink.getPlayer(gid);
+      if (player && player.volume > v) await player.setVolume(v);
+      reply = `🔊 Max volume set to **${v}%**.`;
+      break;
+    }
+    case 'dj-role': {
+      const role = options.getRole('role');
+      updateSettings(gid, { djRoleId: role?.id ?? null });
+      reply = role
+        ? `🎛️ Only ${role} (and admins, or someone alone with the bot) can control playback. Everyone can still request songs and skip their own.`
+        : '🎛️ Everyone in the voice channel can control playback.';
+      break;
+    }
+    case 'request-role': {
+      const role = options.getRole('role');
+      updateSettings(gid, { requestRoleId: role?.id ?? null });
+      reply = role ? `🎟️ Only ${role} (and admins) can add songs.` : '🎟️ Everyone can add songs.';
+      break;
+    }
+    case 'queue-limit':
+      updateSettings(gid, { maxQueue: options.getInteger('songs', true) });
+      reply = `📜 Queue limit set to **${getSettings(gid).maxQueue}** songs.`;
+      break;
+    case 'user-limit': {
+      const n = options.getInteger('songs', true);
+      updateSettings(gid, { maxPerUser: n });
+      reply = n ? `👤 Each person can queue up to **${n}** songs at a time.` : '👤 No per-person limit.';
+      break;
+    }
+    case 'song-length': {
+      const n = options.getInteger('minutes', true);
+      updateSettings(gid, { maxSongMinutes: n });
+      reply = n ? `⏱️ Songs longer than **${n} min** will be refused (live streams too).` : '⏱️ No song length limit.';
+      break;
+    }
+    case 'playlists': {
+      const on = options.getBoolean('enabled', true);
+      updateSettings(gid, { allowPlaylists: on });
+      reply = on ? '📃 Playlists and albums are allowed.' : '📃 Playlists and albums are blocked; only single songs can be added.';
+      break;
+    }
+    case 'auto-leave': {
+      const n = options.getInteger('minutes', true);
+      updateSettings(gid, { autoLeaveMinutes: n });
+      evaluateIdle(gid);
+      reply = n ? `⏳ I'll leave after **${n} min** when the queue ends or everyone leaves.` : "⏳ I'll leave as soon as the queue ends (or 15 s after everyone leaves).";
+      if (s.stay247) reply += '\n-# 24/7 mode is on, so this only applies once you turn it off.';
+      break;
+    }
+    case 'stay-247': {
+      const on = options.getBoolean('enabled', true);
+      updateSettings(gid, { stay247: on });
+      evaluateIdle(gid);
+      reply = on ? '🌙 24/7 mode on: I stay in voice even when nothing is playing.' : '🌙 24/7 mode off: I leave when idle.';
+      break;
+    }
+    case 'search-source': {
+      const src = options.getString('source', true);
+      if (src === 'spsearch' && !config.spotifyEnabled) {
+        throw new UserError("Spotify search isn't enabled on this Blizzbeat (the bot owner needs to add Spotify credentials).");
+      }
+      updateSettings(gid, { searchSource: src });
+      reply = `🔎 Song names will be searched on **${SEARCH_SOURCES[src]}**.`;
+      break;
+    }
+    case 'banner':
+      reply = await setBanner(gid, options.getAttachment('image'));
+      break;
+    case 'color': {
+      const hex = parseHexColor(options.getString('hex', true));
+      if (!hex) throw new UserError('Use a hex colour like `#5BC0F8`.');
+      updateSettings(gid, { embedColor: hex });
+      reply = `🎨 Embed colour set to **${hex}**.`;
+      break;
+    }
+    case 'reset': {
+      const hadBanner = s.customBanner;
+      if (hadBanner && existsSync(join(bannerDir(), hadBanner))) unlinkSync(join(bannerDir(), hadBanner));
+      resetSettings(gid);
+      if (hadBanner) await refreshBanner(gid).catch(() => null);
+      evaluateIdle(gid);
+      reply = '♻️ All settings are back to defaults. Your Blizzbeat channel was kept.';
+      break;
+    }
+    default:
+      return null;
+  }
+
+  requestUpdate(gid);
+  return { content: reply };
+}
+
+export async function runAdminCommand(interaction) {
+  if (!isAdmin(interaction.member)) throw new UserError('You need the **Manage Server** permission for this.');
+  if (interaction.commandName === 'setup') {
+    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+    return runSetup(interaction);
+  }
+  if (interaction.commandName === 'config') {
+    if (interaction.options.getSubcommand() === 'banner') await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+    return runConfig(interaction);
+  }
+  return null;
+}
