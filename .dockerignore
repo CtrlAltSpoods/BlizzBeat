@@ -1,0 +1,9 @@
+node_modules
+.git
+.github
+.env
+*.log
+data
+assets/src
+assets/*.svg
+README.md

@@ -1,0 +1,20 @@
+{
+  "name": "blizzbeat",
+  "version": "1.0.0",
+  "description": "Blizzbeat - a self-hosted Discord music bot with a live, auto-updating player channel and built-in Lavalink.",
+  "type": "module",
+  "main": "src/index.js",
+  "private": true,
+  "license": "MIT",
+  "engines": {
+    "node": ">=22.13.0"
+  },
+  "scripts": {
+    "start": "node --disable-warning=ExperimentalWarning src/index.js",
+    "check": "node --check src/index.js"
+  },
+  "dependencies": {
+    "discord.js": "^14.28.1",
+    "lavalink-client": "^2.11.2"
+  }
+}
