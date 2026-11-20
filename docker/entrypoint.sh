@@ -79,7 +79,8 @@ start_lavalink() {
   # Regenerated on every (re)start so updates picked by the updater take effect.
   local updates="$DATA_DIR/updates.env" jar="$LAVALINK_DIR/Lavalink.jar" auto_jar="" backend
   # YouTube backend: chosen in Discord (/config youtube, saved in $DATA_DIR) > YOUTUBE_BACKEND > plugin.
-  backend=$(tr -cd 'a-z' < "$DATA_DIR/youtube-backend" 2>/dev/null)
+  backend=""
+  if [[ -f "$DATA_DIR/youtube-backend" ]]; then backend=$(tr -cd 'a-z' < "$DATA_DIR/youtube-backend" || true); fi
   backend="${backend:-${YOUTUBE_BACKEND:-plugin}}"
   ( set -a; [[ -f "$updates" ]] && . "$updates"; YOUTUBE_BACKEND="$backend" /app/docker/lavalink-config.sh ) > "$LAVALINK_DIR/application.yml"
   [[ -f "$updates" ]] && auto_jar=$(grep -E "^AUTO_LAVALINK_JAR=" "$updates" | cut -d= -f2- | tr -d "'")
