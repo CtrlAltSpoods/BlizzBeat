@@ -134,6 +134,7 @@ Commands used inside the Blizzbeat channel reply privately so the channel stays 
 | `/config vote-skip enabled [percent]` | Listeners vote to skip other people's songs (default 50% of the channel). Admins, DJs, the requester and anyone alone with the bot skip instantly. |
 | `/config cooldowns [requests] [controls]` | Seconds each person must wait between song requests and between controls (0 = off, admins exempt). Run it with no options to see the current values. |
 | `/config youtube` | Sign in to YouTube with a spare Google account (fixes "confirm you're not a bot"), check status, sign out, or switch YouTube between the Lavalink plugin and yt-dlp |
+| `/config buffer [seconds]` | Audio buffer for all servers (default 1 s, 0.2–30). Bigger rides out network hiccups; smaller reacts faster. Lavalink restarts once nothing is playing. |
 | `/config voice-status` | Show the current song as the voice channel's status |
 | `/config search-source` | Where typed song names are searched: YouTube Music, YouTube, SoundCloud or Spotify |
 | `/config banner [image]` | Upload a custom banner, or leave empty to restore the default. The banner message is edited, not re-posted. |
@@ -152,7 +153,7 @@ Blizzbeat plays YouTube's Opus audio (about 130–160 kbps) straight through to 
 Blizzbeat also tries to get you the best recording:
 - **YouTube's best stream.** The YouTube plugin picks the best audio format YouTube offers: Opus, without dynamic-range compression, at the highest bitrate.
 - **Official audio over music videos.** Typed searches use YouTube Music by default, Spotify links are matched on YouTube Music first, and autoplay swaps music videos for their official audio uploads when the length matches. That means no video intros or outros, and the studio master.
-- **A 10-second audio buffer**, so short network hiccups don't cause stutters.
+- **An adjustable audio buffer** (1 second by default). `/config buffer` changes it for all servers: raise it if songs stutter or say "track stuck" on a slow connection; keep it low so volume, effects and skips react quickly.
 
 At any other volume, or with an effect on, Lavalink has to decode and re-encode the audio, which loses some quality. The player shows **🎧 original** next to the volume when you're getting the untouched stream. To make it quieter without losing quality, use Discord's own slider: right-click Blizzbeat → **User Volume**.
 
@@ -195,6 +196,7 @@ Everything is documented in [`.env.example`](.env.example). The main settings ar
 | `DEFAULT_VOLUME`, `MAX_VOLUME`, `DEFAULT_MAX_QUEUE`, `DEFAULT_AUTO_LEAVE_MINUTES`, `DEFAULT_SEARCH_SOURCE` | | Starting values for new servers |
 | `PROGRESS_UPDATE_SECONDS` | `10` | How often the progress bar refreshes |
 | `DEFAULT_REQUEST_COOLDOWN`, `DEFAULT_CONTROL_COOLDOWN` | `3`, `0` | Starting cooldowns in seconds |
+| `LAVALINK_FRAME_BUFFER_MS` | `1000` | Starting audio buffer (overridden by `/config buffer`) |
 | `AUTO_UPDATE` | `true` | In-container updates of Lavalink and its plugins (see *Staying up to date*) |
 | `RESTORE_MAX_AGE_MINUTES` | `60` | Don't resume queues saved longer ago than this (24/7 servers always resume) |
 | `JAVA_OPTS` | `-Xms128m -Xmx512m` | Memory for the built-in Lavalink |

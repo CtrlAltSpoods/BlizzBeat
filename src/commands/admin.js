@@ -15,6 +15,7 @@ import { bannerDir, getSettings, resetSettings, updateSettings } from '../db.js'
 import { missingChannelPerms, refreshBanner, removeSetup, repost, requestUpdate, setupChannel } from '../controller.js';
 import { evaluateIdle, isAdmin, SEARCH_SOURCES, UserError } from '../music.js';
 import { clearVoiceStatus, setVoiceStatus } from '../status.js';
+import { bufferMs, setBufferMs } from '../engine.js';
 import { restartLavalinkWhenIdle, versionSummary, ytdlpVersion } from '../updater.js';
 import {
   forgetYoutubeLogin,
@@ -185,6 +186,14 @@ export const adminCommands = [
       )
       .addSubcommand((s) =>
         s
+          .setName('buffer')
+          .setDescription('Audio buffer in seconds (all servers; default 1). Bigger = fewer stutters, slower to react')
+          .addNumberOption((o) =>
+            o.setName('seconds').setDescription('0.2 to 30 (leave empty to see the current value)').setMinValue(0.2).setMaxValue(30),
+          ),
+      )
+      .addSubcommand((s) =>
+        s
           .setName('voice-status')
           .setDescription("Show the current song as the voice channel's status")
           .addBooleanOption((o) => o.setName('enabled').setDescription('Voice channel status on/off').setRequired(true)),
@@ -319,6 +328,7 @@ function settingsEmbed(guildId) {
         inline: true,
       },
       { name: 'Blocked users', value: s.blockedUsers.length ? s.blockedUsers.map((id) => `<@${id}>`).join(', ') : 'None' },
+      { name: 'Audio buffer', value: `${(bufferMs() / 1000).toFixed(1)} s (all servers)`, inline: true },
       { name: 'Versions', value: versionSummary().slice(0, 1024) },
     );
 }
@@ -584,6 +594,26 @@ async function runConfig(interaction) {
     }
     case 'youtube':
       return runYoutube(interaction);
+    case 'buffer': {
+      const seconds = options.getNumber('seconds');
+      const current = bufferMs();
+      if (seconds === null) {
+        return {
+          content: `🎚️ The audio buffer is **${(current / 1000).toFixed(1)} s**. Larger rides out network hiccups; smaller makes volume, effects and skips react faster.`,
+        };
+      }
+      const ms = setBufferMs(seconds * 1000);
+      if (ms === current) return { content: `🎚️ The audio buffer is already **${(ms / 1000).toFixed(1)} s**.` };
+      const isBusy = () => [...lavalink.players.values()].some((p) => p.queue.current);
+      const now = restartLavalinkWhenIdle(isBusy);
+      return {
+        content:
+          `🎚️ Audio buffer set to **${(ms / 1000).toFixed(1)} s** (applies to every server). ` +
+          (now
+            ? 'Applying now; the music engine restarts for about 20 seconds.'
+            : 'It applies as soon as nothing is playing (the music engine restarts for about 20 seconds).'),
+      };
+    }
     case 'search-source': {
       const src = options.getString('source', true);
       if (src === 'scsearch') {

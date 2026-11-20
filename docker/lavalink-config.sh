@@ -27,6 +27,11 @@ YOUTUBE_BACKEND="${YOUTUBE_BACKEND:-plugin}"
 YT_PLUGIN_ON=true
 YTDLP_ON=false
 if [[ "$YOUTUBE_BACKEND" == "ytdlp" ]]; then YT_PLUGIN_ON=false; YTDLP_ON=true; fi
+# Audio buffer (ms of decoded audio Lavalink keeps ready). Set in Discord with /config buffer.
+FRAME_BUFFER_MS="${LAVALINK_FRAME_BUFFER_MS:-1000}"
+[[ "$FRAME_BUFFER_MS" =~ ^[0-9]+$ ]] || FRAME_BUFFER_MS=1000
+(( FRAME_BUFFER_MS < 200 )) && FRAME_BUFFER_MS=200
+(( FRAME_BUFFER_MS > 30000 )) && FRAME_BUFFER_MS=30000
 SPOTIFY_ON=false
 truthy "${SPOTIFY_ENABLED:-false}" && SPOTIFY_ON=true
 
@@ -56,7 +61,7 @@ lavalink:
       http: true # only ever given the bot's own 127.0.0.1 media-server links (yt-dlp sites)
       local: false
     bufferDurationMs: 400
-    frameBufferDurationMs: 10000 # 10s of decoded audio buffered: rides out network hiccups
+    frameBufferDurationMs: ${FRAME_BUFFER_MS} # decoded audio kept ready (/config buffer)
     opusEncodingQuality: 10
     resamplingQuality: HIGH # used for non-48kHz sources (SoundCloud, Bandcamp) and speed/pitch effects
     trackStuckThresholdMs: 10000

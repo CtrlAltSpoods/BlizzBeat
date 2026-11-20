@@ -82,10 +82,14 @@ start_lavalink() {
   backend=""
   if [[ -f "$DATA_DIR/youtube-backend" ]]; then backend=$(tr -cd 'a-z' < "$DATA_DIR/youtube-backend" || true); fi
   backend="${backend:-${YOUTUBE_BACKEND:-plugin}}"
-  ( set -a; [[ -f "$updates" ]] && . "$updates"; YOUTUBE_BACKEND="$backend" /app/docker/lavalink-config.sh ) > "$LAVALINK_DIR/application.yml"
+  # Audio buffer: set in Discord (/config buffer, saved in $DATA_DIR) > LAVALINK_FRAME_BUFFER_MS > 1000 ms.
+  local buffer_ms=""
+  if [[ -f "$DATA_DIR/lavalink-buffer-ms" ]]; then buffer_ms=$(tr -cd '0-9' < "$DATA_DIR/lavalink-buffer-ms" || true); fi
+  buffer_ms="${buffer_ms:-${LAVALINK_FRAME_BUFFER_MS:-1000}}"
+  ( set -a; [[ -f "$updates" ]] && . "$updates"; YOUTUBE_BACKEND="$backend" LAVALINK_FRAME_BUFFER_MS="$buffer_ms" /app/docker/lavalink-config.sh ) > "$LAVALINK_DIR/application.yml"
   [[ -f "$updates" ]] && auto_jar=$(grep -E "^AUTO_LAVALINK_JAR=" "$updates" | cut -d= -f2- | tr -d "'")
   [[ -n "$auto_jar" && -f "$auto_jar" ]] && jar="$auto_jar"
-  log "Starting Lavalink ($(basename "$jar"), YouTube via ${backend}; the first start downloads plugins, which can take a minute)..."
+  log "Starting Lavalink ($(basename "$jar"), YouTube via ${backend}, ${buffer_ms} ms buffer; the first start downloads plugins, which can take a minute)..."
   cd "$LAVALINK_DIR"
   # shellcheck disable=SC2086
   java ${JAVA_OPTS:-} -Duser.home=/tmp -jar "$jar" &
