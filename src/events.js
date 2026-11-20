@@ -5,15 +5,30 @@ import { config } from './config.js';
 import { flash, isControllerChannel, isControllerMessage, requestUpdate } from './controller.js';
 import { getSettings } from './db.js';
 import { log } from './logger.js';
-import { autoplayNext, checkVotes, clearVotes, evaluateIdle, forgetGuild, requestSongs, requestUploads, UserError } from './music.js';
+import {
+  autoplayNext,
+  checkVotes,
+  clearVotes,
+  evaluateIdle,
+  forgetGuild,
+  noteTrackFailure,
+  noteTrackSuccess,
+  requestSongs,
+  requestUploads,
+  UserError,
+  warmTrack,
+} from './music.js';
 import { dropSession, scheduleSave } from './persistence.js';
 import { hasCookies, isYoutubeBlock, youtubeBackend } from './youtube.js';
 import { clearVoiceStatus, setVoiceStatus, updatePresence } from './status.js';
 import { looksLikeMedia } from './uploads.js';
-import { escapeMd, truncate } from './util/format.js';
+import { lastMediaError } from './media.js';
+import { escapeMd, mediaInfo, truncate } from './util/format.js';
 
 export function registerLavalinkEvents() {
   playerHooks.autoplay = autoplayNext;
+  playerHooks.onAutoplayPaused = (guildId) =>
+    flash(guildId, '📻 Autoplay stopped because the last few songs failed to play. Request a song to carry on.', 30_000);
   queueHooks.onChange = (guildId) => {
     requestUpdate(guildId);
     scheduleSave(guildId);
@@ -27,8 +42,12 @@ export function registerLavalinkEvents() {
     scheduleSave(player.guildId);
     setVoiceStatus(player);
     updatePresence();
+    warmTrack(player.queue.tracks[0]); // get the next song's stream ready
   });
-  lavalink.on('trackEnd', (player) => requestUpdate(player.guildId));
+  lavalink.on('trackEnd', (player, track, payload) => {
+    if (payload?.reason === 'finished') noteTrackSuccess(player.guildId);
+    requestUpdate(player.guildId);
+  });
   lavalink.on('queueEnd', (player) => {
     requestUpdate(player.guildId);
     evaluateIdle(player.guildId);
@@ -62,9 +81,12 @@ export function registerLavalinkEvents() {
 
   const lastBlockHint = new Map();
   lavalink.on('trackError', (player, track, payload) => {
-    const reason = String(payload?.exception?.message ?? payload?.message ?? 'unknown error');
-    const cause = String(payload?.exception?.cause ?? '');
+    // Songs played through the media server fail with a bare HTTP error; use yt-dlp's real reason instead.
+    const mediaReason = lastMediaError(mediaInfo(track?.info?.uri)?.page);
+    const reason = mediaReason ?? String(payload?.exception?.message ?? payload?.message ?? 'unknown error');
+    const cause = mediaReason ? '' : String(payload?.exception?.cause ?? '');
     log.warn(`[${player.guildId}] track error: ${track?.info?.title} :: ${reason.replace(/\n+/g, ' | ')} ${cause}`);
+    noteTrackFailure(player.guildId);
     const title = escapeMd(truncate(track?.info?.title ?? 'that song', 80));
 
     // youtube-source lists why each client failed: "Client [TVHTML5] failed: This video requires login."
@@ -106,6 +128,7 @@ export function registerLavalinkEvents() {
 
   lavalink.on('trackStuck', (player, track) => {
     log.warn(`[${player.guildId}] track stuck: ${track?.info?.title}`);
+    noteTrackFailure(player.guildId);
     flash(player.guildId, `⚠️ **${escapeMd(truncate(track?.info?.title ?? 'That song', 80))}** got stuck, skipping.`, 8000);
   });
 

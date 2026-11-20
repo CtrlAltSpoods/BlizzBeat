@@ -1,14 +1,14 @@
 // Song requests, playback controls, permission checks and idle handling.
 import { ChannelType, PermissionFlagsBits } from 'discord.js';
-import { client, lavalink, toRequester } from './client.js';
+import { client, lavalink, playerHooks, toRequester } from './client.js';
 import { config } from './config.js';
 import { getSettings, updateSettings } from './db.js';
 import { log } from './logger.js';
 import { clearVoiceStatus } from './status.js';
-import { assertPublicUrl, isNativeLink, mediaUrl, resolveLink, searchYoutube } from './media.js';
+import { assertPublicUrl, isNativeLink, mediaUrl, resolveLink, searchYoutube, warmMedia } from './media.js';
 import { saveAttachment, UPLOAD_PREFIX, UploadError, uploadNameOf } from './uploads.js';
 import { resolveSearchSource, youtubeBackend } from './youtube.js';
-import { displayUri, escapeMd, formatDuration, isUrl, trackDuration, trackLength, truncate } from './util/format.js';
+import { displayUri, escapeMd, formatDuration, isUrl, mediaInfo, trackDuration, trackLength, truncate } from './util/format.js';
 
 /** An error whose message is safe and friendly to show to the user. */
 export class UserError extends Error {}
@@ -197,6 +197,50 @@ function toUnresolved(it, requester) {
   );
 }
 
+/** The YouTube video id behind a track (plain YouTube tracks and ones played through the media server). */
+export function youtubeIdOf(track) {
+  try {
+    const u = new URL(displayUri(track));
+    const host = u.hostname.toLowerCase();
+    if (host === 'youtu.be') return u.pathname.slice(1) || null;
+    if (/(^|\.)youtube\.com$/.test(host)) return u.searchParams.get('v') || null;
+  } catch {
+    /* not a URL */
+  }
+  const { sourceName, identifier } = track?.info ?? {};
+  return ['youtube', 'youtubemusic', 'ytdlp'].includes(sourceName) && /^[\w-]{11}$/.test(identifier ?? '') ? identifier : null;
+}
+
+/**
+ * yt-dlp mode: YouTube songs play through the bot's media server, where yt-dlp's own request headers
+ * are used (and yt-dlp downloads the audio itself if a direct fetch is refused). Lavalink fetching the
+ * stream URL itself gets "403" from YouTube. Other tracks are returned unchanged.
+ */
+function viaMediaServer(track) {
+  if (youtubeBackend() !== 'ytdlp' || !track?.info || mediaInfo(track.info.uri)) return track;
+  const id = youtubeIdOf(track);
+  if (!id) return track;
+  const { info } = track;
+  return toUnresolved(
+    {
+      page: `https://www.youtube.com/watch?v=${id}`,
+      title: info.title,
+      author: info.author,
+      durationMs: info.isStream ? 0 : info.duration,
+      isLive: Boolean(info.isStream),
+      artworkUrl: info.artworkUrl ?? `https://i.ytimg.com/vi/${id}/hqdefault.jpg`,
+      source: 'youtube',
+    },
+    track.requester,
+  );
+}
+
+/** Fetch stream details for a media-server track ahead of time so it starts without a pause. */
+export function warmTrack(track) {
+  const page = mediaInfo(track?.info?.uri)?.page;
+  if (page) warmMedia(page);
+}
+
 /** Reads a link with yt-dlp and turns it into queueable tracks that Lavalink plays via the media server. */
 async function resolveWithYtdlp(url, settings, requester) {
   try {
@@ -329,6 +373,7 @@ export async function requestSongs({ guild, member, query, next = false, textCha
 
 /** Applies the server's limits, adds the tracks and returns the user-facing summary. */
 async function enqueue({ guild, member, player, settings, next, tracks, groupName, notes = [] }) {
+  tracks = tracks.map(viaMediaServer);
   let tooLong = 0;
   if (settings.maxSongMinutes > 0) {
     const max = settings.maxSongMinutes * 60_000;
@@ -355,6 +400,7 @@ async function enqueue({ guild, member, player, settings, next, tracks, groupNam
   tracks = tracks.slice(0, allowed);
 
   const startNow = !player.queue.current;
+  if (startNow || next || player.queue.tracks.length === 0) warmTrack(tracks[0]);
   await player.queue.add(tracks, next && !startNow ? 0 : undefined);
   if (startNow) await player.play({ paused: false });
   touchCooldown(member, 'request');
@@ -597,6 +643,7 @@ export function evaluateIdle(guildId) {
 
 export function forgetGuild(guildId) {
   clearLeaveTimer(guildId);
+  failures.delete(guildId);
 }
 
 /* ------------------------------ Vote-skip ------------------------------ */
@@ -745,33 +792,60 @@ async function officialAudioFor(player, track, usable) {
   }
 }
 
+// Songs that failed to play, per server (timestamps). Autoplay stops picking when they pile up, so a
+// YouTube block doesn't turn into an endless chain of failing songs.
+const failures = new Map();
+const FAILURE_WINDOW_MS = 3 * 60_000;
+
+export function noteTrackFailure(guildId) {
+  const now = Date.now();
+  const list = (failures.get(guildId) ?? []).filter((t) => now - t < FAILURE_WINDOW_MS);
+  list.push(now);
+  failures.set(guildId, list);
+}
+
+/** A song played properly for a while: forget earlier failures. */
+export function noteTrackSuccess(guildId) {
+  failures.delete(guildId);
+}
+
+function failingTooOften(guildId) {
+  const now = Date.now();
+  return (failures.get(guildId) ?? []).filter((t) => now - t < FAILURE_WINDOW_MS).length >= 3;
+}
+
 /** lavalink-client calls this when the queue runs dry. Adds one related song if autoplay is on. */
 export async function autoplayNext(player, lastTrack) {
   const settings = getSettings(player.guildId);
   if (!settings.autoplay || !lastTrack?.info) return;
   if (humansIn(playerChannel(player)) === 0) return; // nobody is listening
 
-  const recentIds = new Set(
-    [lastTrack, ...player.queue.previous].slice(0, 50).map((t) => t?.info?.identifier).filter(Boolean),
-  );
+  if (failingTooOften(player.guildId)) {
+    log.info(`[${player.guildId}] autoplay paused: the last few songs all failed to play`);
+    playerHooks.onAutoplayPaused?.(player.guildId);
+    return;
+  }
+
+  const keyOf = (t) => youtubeIdOf(t) ?? t?.info?.identifier;
+  const recentIds = new Set([lastTrack, ...player.queue.previous].slice(0, 50).map(keyOf).filter(Boolean));
   const recentTitles = new Set(
     [lastTrack, ...player.queue.previous].slice(0, 50).map((t) => t?.info?.title?.toLowerCase()).filter(Boolean),
   );
   const maxMs = settings.maxSongMinutes > 0 ? settings.maxSongMinutes * 60_000 : 12 * 60_000;
   const usable = (t) =>
-    !recentIds.has(t.info.identifier) &&
+    !recentIds.has(keyOf(t)) &&
     !recentTitles.has(t.info.title?.toLowerCase()) &&
     !t.info.isStream &&
     t.info.duration >= 60_000 &&
     t.info.duration <= maxMs;
 
   const attempts = [];
-  const { sourceName, identifier } = lastTrack.info;
   // Uploaded files without an artist tag show "Uploaded file" as the artist; don't search for that.
   const author = uploadNameOf(lastTrack) && lastTrack.info.author === 'Uploaded file' ? null : lastTrack.info.author;
-  if ((sourceName === 'youtube' || sourceName === 'youtubemusic' || sourceName === 'ytdlp') && identifier) {
+  const ytId = youtubeIdOf(lastTrack);
+  if (ytId) {
     // YouTube's own "mix" for this video.
-    attempts.push({ query: `https://www.youtube.com/watch?v=${identifier}&list=RD${identifier}` });
+    attempts.push({ query: `https://www.youtube.com/watch?v=${ytId}&list=RD${ytId}` });
   }
   const musicSearch = resolveSearchSource('ytmsearch');
   if (author) attempts.push({ query: author, source: musicSearch });
@@ -783,7 +857,8 @@ export async function autoplayNext(player, lastTrack) {
       const pool = (res?.tracks ?? []).filter(usable).slice(0, 8);
       if (!pool.length) continue;
       let pick = pool[Math.floor(Math.random() * pool.length)];
-      pick = (await officialAudioFor(player, pick, usable)) ?? pick;
+      pick = viaMediaServer((await officialAudioFor(player, pick, usable)) ?? pick);
+      warmTrack(pick);
       await player.queue.add(pick);
       log.info(`[${player.guildId}] autoplay picked: ${pick.info.title}`);
       return;

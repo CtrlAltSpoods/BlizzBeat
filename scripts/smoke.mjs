@@ -32,9 +32,17 @@ try {
 
 // --- connect to Lavalink
 const events = [];
+const { lastMediaError } = await import('../src/media.js');
+const { mediaInfo } = await import('../src/util/format.js');
 for (const e of ['trackStart', 'trackEnd', 'trackError', 'trackStuck', 'queueEnd', 'playerCreate']) {
   lavalink.on(e, (player, track, payload) =>
-    events.push({ e, title: track?.info?.title, err: [payload?.exception?.message ?? payload?.error, payload?.exception?.cause].filter(Boolean).join(' :: ') }),
+    events.push({
+      e,
+      title: track?.info?.title,
+      err:
+        lastMediaError(mediaInfo(track?.info?.uri)?.page) ??
+        [payload?.exception?.message ?? payload?.error, payload?.exception?.cause].filter(Boolean).join(' :: '),
+    }),
   );
 }
 try {
@@ -199,6 +207,15 @@ try {
 }
 
 const player = lavalink.getPlayer('200');
+if (player && YTDLP) {
+  // yt-dlp mode: YouTube songs must go through the bot's media server (Lavalink fetching YouTube itself gets 403).
+  const all = [player.queue.current, ...player.queue.tracks].filter(Boolean);
+  const viaMedia = all.filter((t) => mediaInfo(t.info.uri));
+  (viaMedia.length === all.length ? ok : bad)(
+    'yt-dlp mode: YouTube plays via media server',
+    `${viaMedia.length}/${all.length} queued songs use the media server (${all.map((t) => t.info.title).join(', ')})`,
+  );
+}
 if (player) {
   ok('player created', `vc=${player.voiceChannelId} volume=${player.volume} current="${player.queue.current?.info?.title ?? '-'}"`);
   // Without a real Discord voice connection Lavalink can't send audio, but it still loads the stream.

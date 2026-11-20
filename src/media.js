@@ -119,7 +119,7 @@ const CACHE_MS = 20 * 60_000;
 function remember(page, info) {
   if (!info?.url) return;
   cache.set(page, {
-    media: { url: info.url, headers: info.http_headers ?? {}, protocol: info.protocol ?? '' },
+    media: { url: info.url, headers: info.http_headers ?? {}, protocol: info.protocol ?? '', acodec: info.acodec ?? '' },
     expires: Date.now() + CACHE_MS,
   });
   if (cache.size > 500) for (const [k, v] of cache) if (v.expires < Date.now()) cache.delete(k);
@@ -170,19 +170,46 @@ export async function searchYoutube(query, limit = 5) {
     );
 }
 
+const inflight = new Map(); // page -> Promise (one yt-dlp lookup per page at a time)
+
 async function mediaFor(page) {
   const hit = cache.get(page);
   if (hit && hit.expires > Date.now()) return hit.media;
-  const info = await ytdlpJson(['-J', '--no-playlist', '--no-warnings', '-f', 'bestaudio/best', page]);
-  remember(page, info);
-  return cache.get(page)?.media ?? null;
+  if (inflight.has(page)) return inflight.get(page);
+  const job = ytdlpJson(['-J', '--no-playlist', '--no-warnings', '-f', 'bestaudio/best', page])
+    .then((info) => {
+      remember(page, info);
+      return cache.get(page)?.media ?? null;
+    })
+    .finally(() => inflight.delete(page));
+  inflight.set(page, job);
+  return job;
+}
+
+/** Looks up a page's stream in the background so playback starts without waiting for yt-dlp. */
+export function warmMedia(page) {
+  if (!page || page.startsWith(UPLOAD_PREFIX)) return;
+  mediaFor(page).catch((err) => log.debug(`[media] warm-up failed for ${page}: ${err.message}`));
 }
 
 /* ------------------------------ streaming server ------------------------------ */
 
+const errors = new Map(); // page -> { message, at }: why the last stream attempt failed (shown to users)
+
+function noteError(page, message) {
+  errors.set(page, { message: String(message).slice(0, 300), at: Date.now() });
+  if (errors.size > 200) errors.delete(errors.keys().next().value);
+}
+
+/** Why the media server last failed to stream a page (if it did in the last few minutes). */
+export function lastMediaError(page) {
+  const e = errors.get(page);
+  return e && Date.now() - e.at < 5 * 60_000 ? e.message : null;
+}
+
 const DIRECT_PROTOCOLS = new Set(['http', 'https', 'm3u8', 'm3u8_native']);
 
-function ffmpegArgs(input, headers) {
+function ffmpegArgs(input, headers, copyOpus = false) {
   const args = ['-nostdin', '-hide_banner', '-loglevel', 'error'];
   const h = Object.entries(headers ?? {})
     .filter(([k]) => !/^(accept-encoding|host)$/i.test(k))
@@ -192,7 +219,11 @@ function ffmpegArgs(input, headers) {
     if (h) args.push('-headers', h);
     args.push('-reconnect', '1', '-reconnect_streamed', '1', '-reconnect_delay_max', '5');
   }
-  args.push('-i', input, '-vn', '-map', '0:a:0', '-c:a', 'libopus', '-b:a', OPUS_BITRATE, '-ar', '48000', '-ac', '2', '-f', 'ogg', 'pipe:1');
+  args.push('-i', input, '-vn', '-map', '0:a:0');
+  // Opus already (YouTube, SoundCloud Opus): repackage it untouched so Lavalink can pass it straight through.
+  if (copyOpus) args.push('-c:a', 'copy');
+  else args.push('-c:a', 'libopus', '-b:a', OPUS_BITRATE, '-ar', '48000', '-ac', '2');
+  args.push('-f', 'ogg', 'pipe:1');
   return args;
 }
 
@@ -201,20 +232,30 @@ function startPipeline(page, media) {
   const procs = [];
   let ffmpeg;
   if (media && DIRECT_PROTOCOLS.has(media.protocol)) {
-    ffmpeg = spawn(FFMPEG, ffmpegArgs(media.url, media.headers), { stdio: ['ignore', 'pipe', 'pipe'] });
+    ffmpeg = spawn(FFMPEG, ffmpegArgs(media.url, media.headers, media.acodec === 'opus'), { stdio: ['ignore', 'pipe', 'pipe'] });
   } else {
     const dl = spawn(YTDLP, ['-q', '--no-warnings', '--no-playlist', '-f', 'bestaudio/best', '-o', '-', page], { stdio: ['ignore', 'pipe', 'pipe'] });
     ffmpeg = spawn(FFMPEG, ffmpegArgs('pipe:0'), { stdio: ['pipe', 'pipe', 'pipe'] });
     dl.stdout.pipe(ffmpeg.stdin).on('error', () => null);
-    dl.stderr.on('data', (d) => log.debug('[media] yt-dlp:', String(d).trim()));
+    dl.stderr.on('data', (d) => {
+      const text = String(d).trim();
+      log.debug('[media] yt-dlp:', text);
+      const line = text.split('\n').find((l) => l.includes('ERROR'));
+      if (line) ytdlpErr = line.replace(/^.*ERROR:\s*/, '').trim();
+    });
     procs.push(dl);
   }
   procs.push(ffmpeg);
   let errText = '';
+  let ytdlpErr = '';
   ffmpeg.stderr.on('data', (d) => {
     errText += String(d);
   });
-  return { ffmpeg, kill: () => procs.forEach((p) => p.kill('SIGKILL')), errors: () => errText.trim() };
+  return {
+    ffmpeg,
+    kill: () => procs.forEach((p) => p.kill('SIGKILL')),
+    errors: () => ytdlpErr || errText.trim(),
+  };
 }
 
 /** Uploaded files are served as-is with Range support, so Lavalink knows the length and can seek. */
@@ -290,6 +331,12 @@ async function handle(req, res) {
     media = await mediaFor(page);
   } catch (err) {
     log.warn(`[media] yt-dlp couldn't read ${page}: ${err.message}`);
+    // A block or a removed video won't get better by downloading through yt-dlp: fail right away.
+    if (/sign in|not a bot|video unavailable|private video|has been removed|copyright|members-only|confirm your age|age-restricted/i.test(err.message)) {
+      noteError(page, err.message);
+      res.writeHead(502).end();
+      return;
+    }
   }
 
   const attempt = (m, isRetry) => {
@@ -316,6 +363,7 @@ async function handle(req, res) {
         return;
       }
       log.warn(`[media] couldn't stream ${page}: ${pipe.errors() || `ffmpeg exit ${code}`}`);
+      noteError(page, pipe.errors() || `ffmpeg exit ${code}`);
       if (!res.headersSent) res.writeHead(502).end();
       else res.end();
     });

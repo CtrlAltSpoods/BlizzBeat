@@ -230,6 +230,8 @@ When a song is blocked, Blizzbeat also posts a reminder about this in its channe
 **Trying yt-dlp instead.** Blizzbeat can play YouTube through [yt-dlp](https://github.com/yt-dlp/yt-dlp) instead of Lavalink's YouTube plugin. Switch with `/config youtube` → **Play YouTube through yt-dlp** (or set `YOUTUBE_BACKEND=ytdlp`), and switch back the same way. Lavalink restarts for about 20 seconds once nothing is playing. What changes:
 - yt-dlp is updated very often, and Blizzbeat downloads each new release automatically (launch + daily).
 - Searches use plain YouTube (yt-dlp can't search YouTube Music), and each search and song start takes a second or two longer.
+- Songs play through Blizzbeat's media server, which fetches the audio the way yt-dlp does (Lavalink fetching YouTube's stream itself gets "403"). YouTube's Opus audio is passed through untouched, but these songs can't be seeked.
+- If the last few songs all fail, autoplay stops instead of trying song after song.
 - YouTube's bot check applies to yt-dlp too. Its fix is a cookies file instead of `/config youtube` sign-in:
   1. In a **private/incognito** window, sign in to YouTube with a **spare** Google account.
   2. Export the youtube.com cookies in Netscape format (for example with the "Get cookies.txt LOCALLY" extension), then close the window without signing out.
