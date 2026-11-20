@@ -258,6 +258,14 @@ for (const [label, query] of probes) {
   }
 }
 
+// --- built-in yt-cipher answers
+try {
+  const res = await withTimeout(fetch('http://127.0.0.1:8001/', { headers: { Authorization: process.env.LAVALINK_PASSWORD ?? '' } }), 5000, 'yt-cipher');
+  ok('yt-cipher running', `HTTP ${res.status}`);
+} catch (err) {
+  bad('yt-cipher running', err.message);
+}
+
 // --- YouTube sign-in plumbing (can't finish the Google login in CI, but every step up to it should work)
 try {
   const yt = await import('../src/youtube.js');

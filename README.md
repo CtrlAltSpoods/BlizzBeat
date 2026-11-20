@@ -153,7 +153,8 @@ Everything is documented in [`.env.example`](.env.example). The main settings ar
 | `DEV_GUILD_ID` | — | Register commands to one server instantly while testing |
 | `ENABLE_MESSAGE_CONTENT` | `true` | Set to `false` if you can't enable the Message Content intent. `/play` still works. |
 | `SPOTIFY_CLIENT_ID` / `SPOTIFY_CLIENT_SECRET` | — | Turns on Spotify links and search |
-| `YOUTUBE_PLUGIN_VERSION` | `1.18.2` | Bump this when YouTube breaks (see below). For the "not a bot" error, use `/config youtube` instead. |
+| `YOUTUBE_PLUGIN_VERSION` | tested build | Leave empty for the default (a youtube-source build with the TV client fix). Set a newer release when one ships. |
+| `YOUTUBE_BUILTIN_CIPHER` | `true` | Runs yt-cipher inside the container to decode YouTube stream signatures |
 | `DEFAULT_VOLUME`, `MAX_VOLUME`, `DEFAULT_MAX_QUEUE`, `DEFAULT_AUTO_LEAVE_MINUTES`, `DEFAULT_SEARCH_SOURCE` | | Starting values for new servers |
 | `PROGRESS_UPDATE_SECONDS` | `10` | How often the progress bar refreshes |
 | `DEFAULT_REQUEST_COOLDOWN`, `DEFAULT_CONTROL_COOLDOWN` | `3`, `0` | Starting cooldowns in seconds |
@@ -170,7 +171,9 @@ Everything is documented in [`.env.example`](.env.example). The main settings ar
 
 When a song is blocked, Blizzbeat also posts a reminder about this in its channel.
 
-**Other YouTube errors.** Set `YOUTUBE_PLUGIN_VERSION` to the newest release from <https://github.com/lavalink-devs/youtube-source/releases> and restart. Lavalink downloads it automatically.
+**"TVHTML5: The page needs to be reloaded".** This is a youtube-source bug ([#226](https://github.com/lavalink-devs/youtube-source/issues/226)) that's fixed but not in a release yet. Blizzbeat uses a fixed development build by default. Leave `YOUTUBE_PLUGIN_VERSION` empty, or remove it if you set it.
+
+**Other YouTube errors.** Blizzbeat runs [yt-cipher](https://github.com/kikkia/yt-cipher) inside the container to decode YouTube's stream signatures, which fixes "Must find sig function". If YouTube changes again, set `YOUTUBE_PLUGIN_VERSION` to the newest release from <https://github.com/lavalink-devs/youtube-source/releases> and restart. Lavalink downloads it automatically.
 
 **SoundCloud.** SoundCloud changed its streaming format in November 2026, and Lavalink can't play the new one yet ([lavaplayer #204](https://github.com/lavalink-devs/lavaplayer/issues/204)). Until that's fixed upstream, Blizzbeat falls back to YouTube Music when a SoundCloud search fails.
 
@@ -186,6 +189,7 @@ When a song is blocked, Blizzbeat also posts a reminder about this in its channe
 Docker container (tini as PID 1)
 ├── Lavalink 4.2 (Java 17), only listening on 127.0.0.1:2333
 │   └── plugins: youtube-source, LavaSrc (Spotify)
+├── yt-cipher (Deno, compiled), 127.0.0.1:8001, decodes YouTube stream signatures
 └── Blizzbeat (Node 22, discord.js v14, lavalink-client)
     ├── src/controller.js   banner + player message, edited in place with debounced, rate-limited updates
     ├── src/music.js        requests, limits, permissions, controls, auto-leave

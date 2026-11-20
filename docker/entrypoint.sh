@@ -20,6 +20,7 @@ if [[ "$(id -u)" == "0" && -z "${BLIZZBEAT_USER_SET:-}" ]]; then
   PGID="${PGID:-1000}"
   mkdir -p "$DATA_DIR" "$LAVALINK_DIR/plugins"
   chown -R "$PUID:$PGID" "$DATA_DIR" "$LAVALINK_DIR" || log "WARNING: could not change ownership of $DATA_DIR / $LAVALINK_DIR"
+  [[ -d /opt/yt-cipher ]] && chown -R "$PUID:$PGID" /opt/yt-cipher/player_cache 2>/dev/null || true
   rm -f /tmp/lavalink.pass /tmp/blizzbeat.heartbeat
   log "Running as UID $PUID / GID $PGID."
   export HOME=/tmp BLIZZBEAT_USER_SET=1
@@ -45,8 +46,28 @@ else
   export SPOTIFY_ENABLED=false
 fi
 
+# Built-in yt-cipher (decodes YouTube stream signatures) unless you point at your own.
+CIPHER_PID=""
+BUILTIN_CIPHER=false
+if [[ -z "${YOUTUBE_REMOTE_CIPHER_URL:-}" && "${YOUTUBE_BUILTIN_CIPHER:-true}" != "false" && -x /opt/yt-cipher/server ]]; then
+  BUILTIN_CIPHER=true
+  export YOUTUBE_REMOTE_CIPHER_URL="http://127.0.0.1:8001"
+  export YOUTUBE_REMOTE_CIPHER_PASSWORD="$LAVALINK_PASSWORD"
+fi
+
 /app/docker/lavalink-config.sh > "$LAVALINK_DIR/application.yml"
-log "Generated Lavalink config (Spotify: $SPOTIFY_ENABLED, YouTube plugin ${YOUTUBE_PLUGIN_VERSION:-default})."
+log "Generated Lavalink config (Spotify: $SPOTIFY_ENABLED, YouTube plugin ${YOUTUBE_PLUGIN_VERSION:-default}, built-in yt-cipher: $BUILTIN_CIPHER)."
+
+start_cipher() {
+  [[ "$BUILTIN_CIPHER" == true ]] || return 0
+  log "Starting yt-cipher..."
+  cd /opt/yt-cipher
+  HOST=127.0.0.1 PORT=8001 API_TOKEN="$LAVALINK_PASSWORD" OVERRIDE_PLAYER_VARIANT="${YTCIPHER_PLAYER_VARIANT:-IAS}" \
+    MAX_THREADS="${YTCIPHER_THREADS:-2}" ./server &
+  CIPHER_PID=$!
+  CIPHER_STARTED=$(date +%s)
+  cd /app
+}
 
 LAVALINK_PID=""
 BOT_PID=""
@@ -70,6 +91,7 @@ shutdown() {
     for _ in $(seq 1 18); do kill -0 "$BOT_PID" 2>/dev/null || break; sleep 0.5; done
   fi
   [[ -n "$LAVALINK_PID" ]] && kill -TERM "$LAVALINK_PID" 2>/dev/null || true
+  [[ -n "$CIPHER_PID" ]] && kill -TERM "$CIPHER_PID" 2>/dev/null || true
   wait || true
   exit 0
 }
@@ -77,6 +99,7 @@ trap shutdown TERM INT
 
 # The bot starts right away so slash commands always answer, even while Lavalink is
 # starting or broken; it connects to Lavalink as soon as it's up (and retries forever).
+start_cipher
 start_lavalink
 log "Starting Blizzbeat..."
 cd /app
@@ -86,13 +109,21 @@ BOT_PID=$!
 # Supervise: if Lavalink dies, restart it (with backoff). If the bot dies, stop the container
 # so Docker's restart policy brings everything back.
 delay=5
+cipher_delay=5
 set +e
 while true; do
-  wait -n "$LAVALINK_PID" "$BOT_PID"
+  wait -n "$LAVALINK_PID" "$BOT_PID" ${CIPHER_PID:+"$CIPHER_PID"}
   code=$?
   if ! kill -0 "$BOT_PID" 2>/dev/null; then
     log "Blizzbeat exited (code $code). Stopping the container."
     break
+  fi
+  if [[ -n "$CIPHER_PID" ]] && ! kill -0 "$CIPHER_PID" 2>/dev/null; then
+    (( $(date +%s) - CIPHER_STARTED > 300 )) && cipher_delay=5
+    log "ERROR: yt-cipher exited (code $code). Restarting it in ${cipher_delay}s..."
+    sleep "$cipher_delay"
+    cipher_delay=$(( cipher_delay * 2 > 120 ? 120 : cipher_delay * 2 ))
+    start_cipher
   fi
   if ! kill -0 "$LAVALINK_PID" 2>/dev/null; then
     (( $(date +%s) - LAVALINK_STARTED > 300 )) && delay=5
@@ -102,6 +133,7 @@ while true; do
     start_lavalink
   fi
 done
+[[ -n "$CIPHER_PID" ]] && kill -TERM "$CIPHER_PID" 2>/dev/null
 kill -TERM "$LAVALINK_PID" 2>/dev/null || true
 wait
 exit "$code"

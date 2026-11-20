@@ -6,7 +6,12 @@ set -euo pipefail
 q() { local s="${1//\\/\\\\}"; s="${s//\"/\\\"}"; printf '"%s"' "$s"; }
 truthy() { [[ "${1,,}" =~ ^(1|true|yes|on)$ ]]; }
 
-YOUTUBE_PLUGIN_VERSION="${YOUTUBE_PLUGIN_VERSION:-1.18.2}"
+# Default: youtube-source master of 2026-11-13. Includes the TV client fix for "The page needs to be
+# reloaded" (#233), which isn't in a release yet (1.18.2 lacks it). Use a release number once one ships.
+YOUTUBE_PLUGIN_VERSION="${YOUTUBE_PLUGIN_VERSION:-e41dd95f8bd134b51e75080fb28cc805fecb431a}"
+# A 40-character commit hash means a snapshot build from Lavalink's snapshot repository.
+YOUTUBE_SNAPSHOT=false
+[[ "$YOUTUBE_PLUGIN_VERSION" =~ ^[0-9a-f]{40}$ ]] && YOUTUBE_SNAPSHOT=true
 LAVASRC_VERSION="${LAVASRC_VERSION:-4.8.3}"
 YOUTUBE_CLIENTS="${YOUTUBE_CLIENTS:-MUSIC,TV,ANDROID_VR,WEB,WEBEMBEDDED}"
 # The TV client is the one that plays with a signed-in account (/config youtube in Discord).
@@ -27,7 +32,7 @@ server:
 lavalink:
   plugins:
     - dependency: $(q "dev.lavalink.youtube:youtube-plugin:${YOUTUBE_PLUGIN_VERSION}")
-      snapshot: false
+      snapshot: ${YOUTUBE_SNAPSHOT}
     - dependency: $(q "com.github.topi314.lavasrc:lavasrc-plugin:${LAVASRC_VERSION}")
       snapshot: false
   pluginsDir: $(q "${LAVALINK_DIR:-/opt/lavalink}/plugins")

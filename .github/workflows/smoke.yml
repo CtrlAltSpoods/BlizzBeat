@@ -42,4 +42,5 @@ jobs:
           echo "-------- container log --------"
           docker logs bb 2>&1 | grep -vE "^\s+at |DEBUG" | tail -60
           docker logs bb 2>&1 | grep -q "Starting Blizzbeat"
+          docker logs bb 2>&1 | grep -q "built-in yt-cipher: true"
           docker logs bb 2>&1 | grep -qiE "TokenInvalid|invalid token|Login failed"
