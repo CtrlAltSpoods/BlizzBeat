@@ -39,17 +39,7 @@ jobs:
 
       - name: yt-dlp works inside the image
         if: always() && matrix.backend == 'ytdlp'
-        run: |
-          docker run --rm --entrypoint bash blizzbeat:smoke -c '
-            set -e
-            echo "yt-dlp $(/usr/local/bin/blizzbeat-yt-dlp --version), $(deno --version | head -1)"
-            /usr/local/bin/blizzbeat-yt-dlp -q --no-warnings --flat-playlist -J "ytsearch2:daft punk get lucky" | python3 -c "import sys,json; d=json.load(sys.stdin); print("search ok:", [e["title"] for e in d["entries"]])"
-            /usr/local/bin/blizzbeat-yt-dlp -q --no-warnings -f bestaudio -J "https://www.youtube.com/watch?v=dQw4w9WgXcQ" 2>&1 | python3 -c "import sys,json
-          raw=sys.stdin.read()
-          try:
-              d=json.loads(raw); print("stream ok:", d.get("format_id"), d.get("acodec"), d.get("abr"), "kbps")
-          except Exception:
-              print("stream blocked from CI (expected on datacenter IPs):", raw.strip()[:300])" || true'
+        run: docker run --rm -v "$PWD/scripts:/app/scripts:ro" --entrypoint /app/scripts/ytdlp-check.sh blizzbeat:smoke
 
       - name: Full container startup (fake token, Unraid PUID/PGID)
         if: always() && matrix.backend == 'plugin'

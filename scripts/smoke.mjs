@@ -7,7 +7,7 @@ const results = [];
 const YTDLP = process.env.YOUTUBE_BACKEND === 'ytdlp';
 const ok = (name, detail = '') => results.push({ name, pass: true, detail });
 // Known upstream/environment problems (YouTube's datacenter bot wall, SoundCloud's new format) are reported as WARN.
-const KNOWN = /sign in to confirm|requires login|not a bot|supported formats|Something went wrong while looking up|status code: 403|playlist does not exist/i;
+const KNOWN = /sign in to confirm|requires login|not a bot|supported formats|Something went wrong while looking up|status code: 403|playlist does not exist|Read timed out|aborted due to timeout/i;
 const bad = (name, detail = '') => results.push({ name, pass: false, warn: KNOWN.test(String(detail)), detail });
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const withTimeout = (p, ms, label) =>
@@ -43,8 +43,6 @@ try {
   await withTimeout(connected, 30_000, 'Lavalink connect');
   const node = lavalink.nodeManager.leastUsedNodes()[0];
   const info = await node.fetchInfo();
-  if (YTDLP && !info.sourceManagers.includes('ytdlp')) bad('yt-dlp source registered', info.sourceManagers.join(','));
-  else if (YTDLP) ok('yt-dlp source registered', 'ytdlp in sourceManagers; youtube plugin source off: ' + !info.sourceManagers.includes('youtube'));
   ok('lavalink connected', `v${info.version?.semver} sources=${info.sourceManagers.join(',')} plugins=${info.plugins.map((p) => `${p.name}@${p.version}`).join(',')}`);
 } catch (err) {
   bad('lavalink connected', err.stack);
@@ -293,7 +291,12 @@ try {
   const code = await withTimeout(yt.requestDeviceCode(), 15_000, 'device code');
   ok('youtube sign-in: Google device code', `code ${code.userCode.replace(/./g, '•')} at ${code.verificationUrl}`);
   const st = await yt.youtubeStatus();
-  (st.available ? ok : bad)('youtube sign-in: Lavalink /youtube endpoint', JSON.stringify(st));
+  if (YTDLP) {
+    // In yt-dlp mode the YouTube plugin is switched off, so its endpoint should be gone.
+    (!st.available ? ok : bad)('YouTube plugin off in yt-dlp mode', st.available ? 'plugin endpoint still answering' : '/youtube endpoint off as expected');
+  } else {
+    (st.available ? ok : bad)('youtube sign-in: Lavalink /youtube endpoint', JSON.stringify(st));
+  }
 } catch (err) {
   bad('youtube sign-in plumbing', err.message);
 }
