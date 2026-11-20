@@ -32,7 +32,8 @@ try {
 
 // --- connect to Lavalink
 const events = [];
-const { lastMediaError } = await import('../src/media.js');
+const { lastMediaError, startMediaServer } = await import('../src/media.js');
+startMediaServer(); // the real bot starts it at boot; yt-dlp links and uploads play through it
 const { mediaInfo } = await import('../src/util/format.js');
 for (const e of ['trackStart', 'trackEnd', 'trackError', 'trackStuck', 'queueEnd', 'playerCreate']) {
   lavalink.on(e, (player, track, payload) =>
