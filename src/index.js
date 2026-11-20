@@ -1,16 +1,16 @@
 // Blizzbeat entry point.
 import { writeFileSync } from 'node:fs';
-import { Events, OAuth2Scopes, PermissionFlagsBits, PermissionsBitField } from 'discord.js';
+import { Events, OAuth2Scopes } from 'discord.js';
 import { client, commandIds, lavalink } from './client.js';
 import { assertConfig, config } from './config.js';
 import { requestUpdate, startProgressTicker } from './controller.js';
 import { allConfiguredGuilds } from './db.js';
 import { registerDiscordEvents, registerLavalinkEvents } from './events.js';
-import { allCommands, handleInteraction } from './interactions.js';
+import { allCommands, handleInteraction, INVITE_PERMISSIONS } from './interactions.js';
 import { log } from './logger.js';
 import { destroyPlayer } from './music.js';
 import { markShuttingDown, restoreSessions, saveAll, startAutosave } from './persistence.js';
-import { SET_VOICE_STATUS, updatePresence } from './status.js';
+import { updatePresence } from './status.js';
 import { restoreYoutubeLogin } from './youtube.js';
 
 assertConfig();
@@ -79,23 +79,17 @@ client.once(Events.ClientReady, async (ready) => {
   heartbeat();
   setInterval(heartbeat, 30_000).unref();
 
-  const permissions = new PermissionsBitField([
-    PermissionFlagsBits.ViewChannel,
-    PermissionFlagsBits.SendMessages,
-    PermissionFlagsBits.EmbedLinks,
-    PermissionFlagsBits.AttachFiles,
-    PermissionFlagsBits.ReadMessageHistory,
-    PermissionFlagsBits.ManageMessages,
-    PermissionFlagsBits.ManageChannels,
-    PermissionFlagsBits.Connect,
-    PermissionFlagsBits.Speak,
-    SET_VOICE_STATUS,
-  ]);
   const invite = ready.generateInvite({
     scopes: [OAuth2Scopes.Bot, OAuth2Scopes.ApplicationsCommands],
-    permissions,
+    permissions: INVITE_PERMISSIONS,
   });
   log.info(`Invite Blizzbeat to a server: ${invite}`);
+  if (ready.guilds.cache.size === 0) {
+    log.warn('Blizzbeat is not in any server yet. Open the invite link above to add it.');
+  } else {
+    log.info(`Servers: ${ready.guilds.cache.map((g) => g.name).join(', ')}`);
+  }
+  log.info('Ready. Slash commands are being handled (each one is logged below).');
 });
 
 let shuttingDown = false;

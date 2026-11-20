@@ -1,5 +1,6 @@
 // Routes slash commands, autocomplete and player buttons.
-import { MessageFlags } from 'discord.js';
+import { MessageFlags, OAuth2Scopes, PermissionFlagsBits, PermissionsBitField } from 'discord.js';
+import { SET_VOICE_STATUS } from './status.js';
 import { adminCommands, runAdminCommand } from './commands/admin.js';
 import { autocompletePlay, runUserCommand, userCommands } from './commands/user.js';
 import { isControllerChannel, requestUpdate } from './controller.js';
@@ -9,6 +10,19 @@ import * as music from './music.js';
 import { UserError } from './music.js';
 
 export const allCommands = [...userCommands, ...adminCommands];
+
+export const INVITE_PERMISSIONS = new PermissionsBitField([
+  PermissionFlagsBits.ViewChannel,
+  PermissionFlagsBits.SendMessages,
+  PermissionFlagsBits.EmbedLinks,
+  PermissionFlagsBits.AttachFiles,
+  PermissionFlagsBits.ReadMessageHistory,
+  PermissionFlagsBits.ManageMessages,
+  PermissionFlagsBits.ManageChannels,
+  PermissionFlagsBits.Connect,
+  PermissionFlagsBits.Speak,
+  SET_VOICE_STATUS,
+]);
 const adminNames = new Set(['setup', 'config']);
 
 const BUTTON_ACTIONS = {
@@ -133,7 +147,26 @@ async function handleCommand(interaction) {
 }
 
 export async function handleInteraction(interaction) {
-  if (!interaction.inCachedGuild()) return;
+  if (interaction.isChatInputCommand()) {
+    log.info(`/${interaction.commandName} from ${interaction.user?.username ?? '?'} in ${interaction.guild?.name ?? interaction.guildId ?? 'DM'}`);
+  }
+  if (!interaction.inCachedGuild()) {
+    // Happens when the app's commands are in a server but the bot user itself isn't (invited without the "bot" scope).
+    log.warn(`Got an interaction from server ${interaction.guildId ?? 'DM'} that the bot isn't a member of.`);
+    if (interaction.isRepliable()) {
+      const invite = interaction.client.generateInvite({
+        scopes: [OAuth2Scopes.Bot, OAuth2Scopes.ApplicationsCommands],
+        permissions: INVITE_PERMISSIONS,
+      });
+      await interaction
+        .reply({
+          content: `⚠️ Blizzbeat's commands are here, but the bot itself isn't in this server. Re-invite it with this link: ${invite}`,
+          flags: MessageFlags.Ephemeral,
+        })
+        .catch(() => null);
+    }
+    return;
+  }
 
   if (interaction.isAutocomplete()) {
     if (interaction.commandName === 'play') {

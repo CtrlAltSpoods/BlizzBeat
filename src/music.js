@@ -106,7 +106,9 @@ async function playerFor(guild, member, textChannelId) {
   const settings = getSettings(guild.id);
   const vc = member.voice?.channel;
   if (!vc) throw new UserError('Join a voice channel first, then ask again.');
-  if (!lavalink.useable) throw new UserError('The music engine is still warming up. Try again in a few seconds.');
+  if (!lavalink.useable) {
+    throw new UserError("The music engine (Lavalink) isn't connected yet. If this lasts more than a couple of minutes, check the container logs.");
+  }
 
   let player = lavalink.getPlayer(guild.id);
   if (player && player.voiceChannelId && player.voiceChannelId !== vc.id) {

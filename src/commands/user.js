@@ -252,7 +252,9 @@ function helpEmbed(guildId) {
         value: `${commandMention('setup', 'create')} to make the player channel, ${commandMention('config', 'view')} to see every setting.`,
       },
     )
-    .setFooter({ text: config.spotifyEnabled ? 'Sources: YouTube, SoundCloud, Spotify' : 'Sources: YouTube, SoundCloud' });
+    .setFooter({
+      text: `Music engine: ${lavalink.useable ? 'connected ✅' : 'starting or offline ⏳'} · Sources: YouTube${config.spotifyEnabled ? ', Spotify' : ''}, SoundCloud`,
+    });
 }
 
 /** Live search suggestions while typing in /play. */
