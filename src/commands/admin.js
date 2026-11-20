@@ -15,6 +15,7 @@ import { bannerDir, getSettings, resetSettings, updateSettings } from '../db.js'
 import { missingChannelPerms, refreshBanner, removeSetup, repost, requestUpdate, setupChannel } from '../controller.js';
 import { evaluateIdle, isAdmin, SEARCH_SOURCES, UserError } from '../music.js';
 import { clearVoiceStatus, setVoiceStatus } from '../status.js';
+import { forgetYoutubeLogin, startYoutubeLogin, youtubeStatus } from '../youtube.js';
 import { parseHexColor } from '../util/format.js';
 
 const admin = (b) => b.setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild).setContexts(InteractionContextType.Guild);
@@ -154,6 +155,22 @@ export const adminCommands = [
           )
           .addIntegerOption((o) =>
             o.setName('controls').setDescription('Seconds between button/command controls').setMinValue(0).setMaxValue(600),
+          ),
+      )
+      .addSubcommand((s) =>
+        s
+          .setName('youtube')
+          .setDescription('Sign Blizzbeat in to YouTube (fixes "Sign in to confirm you\'re not a bot")')
+          .addStringOption((o) =>
+            o
+              .setName('action')
+              .setDescription('What to do')
+              .setRequired(true)
+              .addChoices(
+                { name: 'Sign in (use a spare Google account)', value: 'login' },
+                { name: 'Status', value: 'status' },
+                { name: 'Sign out', value: 'logout' },
+              ),
           ),
       )
       .addSubcommand((s) =>
@@ -327,6 +344,42 @@ async function setBanner(guildId, attachment) {
   return shown ? '🖼️ Banner updated.' : `🖼️ Banner saved. It will show once you run ${commandMention('setup', 'create')}.`;
 }
 
+async function runYoutube(interaction) {
+  const action = interaction.options.getString('action', true);
+  if (action === 'status') {
+    const st = await youtubeStatus();
+    if (!st.available) return { content: "⚠️ I can't reach Lavalink's YouTube source right now." };
+    return {
+      content: st.signedIn
+        ? '✅ Blizzbeat is signed in to YouTube.'
+        : `❌ Not signed in. If songs fail with "Sign in to confirm you're not a bot", run ${commandMention('config', 'youtube')} → Sign in.`,
+    };
+  }
+  if (action === 'logout') {
+    forgetYoutubeLogin();
+    return { content: '👋 Removed the saved YouTube sign-in. Restart the container to fully sign out.' };
+  }
+
+  const flow = await startYoutubeLogin().catch((err) => {
+    throw new UserError(`Couldn't start the YouTube sign-in: ${err.message}`);
+  });
+  const { userCode, verificationUrl } = flow.code;
+  flow.done
+    .then(() => interaction.editReply({ content: '✅ **Signed in to YouTube.** Songs should play now, and this survives restarts.' }))
+    .catch((err) => interaction.editReply({ content: `❌ YouTube sign-in didn't finish: ${err.message}` }))
+    .catch(() => null);
+  return {
+    content: [
+      '**Sign Blizzbeat in to YouTube**',
+      `1. Open <${verificationUrl}> (any device).`,
+      `2. Enter the code **\`${userCode}\`**`,
+      '3. Pick a **spare/burner Google account**, not your main one, and allow access.',
+      '',
+      "⏳ Waiting for you to finish... this message updates when it's done.",
+    ].join('\n'),
+  };
+}
+
 async function runConfig(interaction) {
   const { guild, options } = interaction;
   const group = options.getSubcommandGroup(false);
@@ -471,8 +524,15 @@ async function runConfig(interaction) {
         : '📢 Voice channel status off.';
       break;
     }
+    case 'youtube':
+      return runYoutube(interaction);
     case 'search-source': {
       const src = options.getString('source', true);
+      if (src === 'scsearch') {
+        updateSettings(gid, { searchSource: src });
+        reply = '🔎 Song names will be searched on **SoundCloud**.\n-# Heads-up: SoundCloud changed its streaming format in Nov 2026 and Lavalink can\'t play it yet. Searches fall back to YouTube Music until that\'s fixed upstream.';
+        break;
+      }
       if (src === 'spsearch' && !config.spotifyEnabled) {
         throw new UserError("Spotify search isn't enabled on this Blizzbeat (the bot owner needs to add Spotify credentials).");
       }
@@ -514,7 +574,9 @@ export async function runAdminCommand(interaction) {
     return runSetup(interaction);
   }
   if (interaction.commandName === 'config') {
-    if (interaction.options.getSubcommand() === 'banner') await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+    if (['banner', 'youtube'].includes(interaction.options.getSubcommand())) {
+      await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+    }
     return runConfig(interaction);
   }
   return null;

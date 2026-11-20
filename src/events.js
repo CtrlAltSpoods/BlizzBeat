@@ -1,12 +1,13 @@
 // Lavalink + Discord event wiring.
 import { Events } from 'discord.js';
-import { client, lavalink, playerHooks, queueHooks } from './client.js';
+import { client, commandMention, lavalink, playerHooks, queueHooks } from './client.js';
 import { config } from './config.js';
 import { flash, isControllerChannel, isControllerMessage, requestUpdate } from './controller.js';
 import { getSettings } from './db.js';
 import { log } from './logger.js';
 import { autoplayNext, checkVotes, clearVotes, evaluateIdle, forgetGuild, requestSongs, UserError } from './music.js';
 import { dropSession, scheduleSave } from './persistence.js';
+import { isYoutubeBlock } from './youtube.js';
 import { clearVoiceStatus, setVoiceStatus, updatePresence } from './status.js';
 import { escapeMd, truncate } from './util/format.js';
 
@@ -58,14 +59,27 @@ export function registerLavalinkEvents() {
     updatePresence();
   });
 
+  const lastBlockHint = new Map();
   lavalink.on('trackError', (player, track, payload) => {
     const reason = payload?.exception?.message ?? payload?.message ?? 'unknown error';
-    log.warn(`[${player.guildId}] track error: ${track?.info?.title} :: ${reason}`);
-    flash(
-      player.guildId,
-      `⚠️ Couldn't play **${escapeMd(truncate(track?.info?.title ?? 'that song', 80))}**: ${truncate(reason, 150)}`,
-      10_000,
-    );
+    const cause = payload?.exception?.cause ?? '';
+    log.warn(`[${player.guildId}] track error: ${track?.info?.title} :: ${reason} ${cause}`);
+    const title = escapeMd(truncate(track?.info?.title ?? 'that song', 80));
+    if (isYoutubeBlock(`${reason} ${cause}`)) {
+      log.warn('YouTube is blocking playback. Fix: run /config youtube -> Sign in (with a spare Google account).');
+      const last = lastBlockHint.get(player.guildId) ?? 0;
+      if (Date.now() - last > 10 * 60_000) {
+        lastBlockHint.set(player.guildId, Date.now());
+        flash(
+          player.guildId,
+          `⚠️ YouTube blocked **${title}** ("sign in to confirm you're not a bot").\n` +
+            `An admin can fix this once with ${commandMention('config', 'youtube')} → **Sign in** (use a spare Google account).`,
+          60_000,
+        );
+        return;
+      }
+    }
+    flash(player.guildId, `⚠️ Couldn't play **${title}**: ${truncate(reason.split('\n')[0], 150)}`, 10_000);
   });
   lavalink.on('trackStuck', (player, track) => {
     log.warn(`[${player.guildId}] track stuck: ${track?.info?.title}`);

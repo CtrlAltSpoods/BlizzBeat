@@ -179,6 +179,12 @@ export async function requestSongs({ guild, member, query, next = false, textCha
     throw new UserError(`I couldn't search for that: ${truncate(err?.message ?? 'unknown error', 150)}`);
   }
 
+  // If a non-default search source fails (e.g. SoundCloud is down), try YouTube Music instead.
+  if (!link && source !== 'ytmsearch' && (res.loadType === 'error' || res.loadType === 'empty' || !res.tracks?.length)) {
+    log.info(`[${guild.id}] ${source} search failed (${res.exception?.message ?? res.loadType}), falling back to ytmsearch`);
+    res = await player.search({ query: text, source: 'ytmsearch' }, requester).catch(() => res);
+  }
+
   if (res.loadType === 'error') {
     throw new UserError(`I couldn't load that: ${truncate(res.exception?.message ?? 'unknown error', 150)}`);
   }

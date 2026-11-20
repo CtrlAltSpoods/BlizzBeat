@@ -133,6 +133,7 @@ Commands used inside the Blizzbeat channel reply privately so the channel stays 
 | `/config stay-247` | Stay in voice 24/7 |
 | `/config vote-skip enabled [percent]` | Listeners vote to skip other people's songs (default 50% of the channel). Admins, DJs, the requester and anyone alone with the bot skip instantly. |
 | `/config cooldowns [requests] [controls]` | Seconds each person must wait between song requests and between controls (0 = off, admins exempt). Run it with no options to see the current values. |
+| `/config youtube` | Sign in to YouTube with a spare Google account (fixes "confirm you're not a bot"), check status, or sign out |
 | `/config voice-status` | Show the current song as the voice channel's status |
 | `/config search-source` | Where typed song names are searched: YouTube Music, YouTube, SoundCloud or Spotify |
 | `/config banner [image]` | Upload a custom banner, or leave empty to restore the default. The banner message is edited, not re-posted. |
@@ -152,22 +153,28 @@ Everything is documented in [`.env.example`](.env.example). The main settings ar
 | `DEV_GUILD_ID` | — | Register commands to one server instantly while testing |
 | `ENABLE_MESSAGE_CONTENT` | `true` | Set to `false` if you can't enable the Message Content intent. `/play` still works. |
 | `SPOTIFY_CLIENT_ID` / `SPOTIFY_CLIENT_SECRET` | — | Turns on Spotify links and search |
-| `YOUTUBE_PLUGIN_VERSION` | `1.18.2` | Bump this when YouTube breaks (see below) |
+| `YOUTUBE_PLUGIN_VERSION` | `1.18.2` | Bump this when YouTube breaks (see below). For the "not a bot" error, use `/config youtube` instead. |
 | `DEFAULT_VOLUME`, `MAX_VOLUME`, `DEFAULT_MAX_QUEUE`, `DEFAULT_AUTO_LEAVE_MINUTES`, `DEFAULT_SEARCH_SOURCE` | | Starting values for new servers |
 | `PROGRESS_UPDATE_SECONDS` | `10` | How often the progress bar refreshes |
 | `DEFAULT_REQUEST_COOLDOWN`, `DEFAULT_CONTROL_COOLDOWN` | `3`, `0` | Starting cooldowns in seconds |
 | `RESTORE_MAX_AGE_MINUTES` | `60` | Don't resume queues saved longer ago than this (24/7 servers always resume) |
 | `JAVA_OPTS` | `-Xms128m -Xmx512m` | Memory for the built-in Lavalink |
 
-## When YouTube stops working
+## When songs won't play
 
-YouTube changes often, and every Lavalink bot breaks from time to time. If songs start failing with errors like "This video is unavailable" or "Sign in to confirm you're not a bot":
+**"Sign in to confirm you're not a bot" / "This video requires login".** YouTube blocks a lot of servers, and every Lavalink bot hits this. The fix takes a minute and only needs doing once:
 
-1. **Update the YouTube plugin.** Set `YOUTUBE_PLUGIN_VERSION` to the latest release from <https://github.com/lavalink-devs/youtube-source/releases>, then run `docker compose up -d`. Lavalink downloads the new version and deletes the old one.
-2. **Sign in with OAuth.** Use a burner Google account, not your main one. Set `YOUTUBE_OAUTH_ENABLED=true` and restart. The logs show a `google.com/device` link and a code. Approve it, then copy the refresh token from the logs into `YOUTUBE_OAUTH_REFRESH_TOKEN` so you don't have to repeat this.
-3. For more advanced options (`YOUTUBE_PO_TOKEN`, a remote cipher server), see the [youtube-source README](https://github.com/lavalink-devs/youtube-source#readme).
+1. In Discord, run `/config youtube` and pick **Sign in**.
+2. Blizzbeat replies (only you see it) with a link and a code. Open the link on any device, enter the code, and choose a **spare Google account**, not your main one.
+3. The reply changes to ✅ when it's done. The sign-in is saved in `/data` and re-applied after every restart. `/config youtube` → **Status** shows whether it's active.
 
-SoundCloud keeps working while you fix YouTube. `/config search-source source:SoundCloud` switches typed searches over to it.
+When a song is blocked, Blizzbeat also posts a reminder about this in its channel.
+
+**Other YouTube errors.** Set `YOUTUBE_PLUGIN_VERSION` to the newest release from <https://github.com/lavalink-devs/youtube-source/releases> and restart. Lavalink downloads it automatically.
+
+**SoundCloud.** SoundCloud changed its streaming format in November 2026, and Lavalink can't play the new one yet ([lavaplayer #204](https://github.com/lavalink-devs/lavaplayer/issues/204)). Until that's fixed upstream, Blizzbeat falls back to YouTube Music when a SoundCloud search fails.
+
+**Health check.** The **Smoke test** workflow in GitHub Actions runs the real image against a real Lavalink after every push, and prints a PASS/WARN/FAIL report. YouTube blocks GitHub's servers, so YouTube playback shows as WARN there even when it works on your own connection.
 
 ## How it's built
 

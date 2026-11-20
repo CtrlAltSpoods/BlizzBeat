@@ -11,6 +11,7 @@ import { log } from './logger.js';
 import { destroyPlayer } from './music.js';
 import { markShuttingDown, restoreSessions, saveAll, startAutosave } from './persistence.js';
 import { SET_VOICE_STATUS, updatePresence } from './status.js';
+import { restoreYoutubeLogin } from './youtube.js';
 
 assertConfig();
 
@@ -22,6 +23,7 @@ registerDiscordEvents();
 
 // Once Lavalink is connected, resume whatever was playing before the last restart.
 lavalink.nodeManager.on('connect', () => {
+  restoreYoutubeLogin().catch(() => null);
   setTimeout(() => restoreSessions().catch((err) => log.error('Session restore failed:', err)), 1500);
 });
 

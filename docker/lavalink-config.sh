@@ -8,9 +8,11 @@ truthy() { [[ "${1,,}" =~ ^(1|true|yes|on)$ ]]; }
 
 YOUTUBE_PLUGIN_VERSION="${YOUTUBE_PLUGIN_VERSION:-1.18.2}"
 LAVASRC_VERSION="${LAVASRC_VERSION:-4.8.3}"
-YOUTUBE_CLIENTS="${YOUTUBE_CLIENTS:-MUSIC,ANDROID_VR,WEB,WEBEMBEDDED}"
-if truthy "${YOUTUBE_OAUTH_ENABLED:-false}" && [[ ",$YOUTUBE_CLIENTS," != *",TV,"* ]]; then
-  YOUTUBE_CLIENTS="$YOUTUBE_CLIENTS,TV"
+YOUTUBE_CLIENTS="${YOUTUBE_CLIENTS:-MUSIC,TV,ANDROID_VR,WEB,WEBEMBEDDED}"
+# The TV client is the one that plays with a signed-in account (/config youtube in Discord).
+if [[ ",$YOUTUBE_CLIENTS," != *",TV,"* ]]; then
+  YOUTUBE_CLIENTS="${YOUTUBE_CLIENTS/MUSIC/MUSIC,TV}"
+  [[ ",$YOUTUBE_CLIENTS," != *",TV,"* ]] && YOUTUBE_CLIENTS="TV,$YOUTUBE_CLIENTS"
 fi
 SPOTIFY_ON=false
 truthy "${SPOTIFY_ENABLED:-false}" && SPOTIFY_ON=true
@@ -67,12 +69,18 @@ for c in "${clients[@]}"; do
   if [[ -n "$c" ]]; then echo "      - $c"; fi
 done
 
-if truthy "${YOUTUBE_OAUTH_ENABLED:-false}"; then
-  echo "    oauth:"
-  echo "      enabled: true"
-  if [[ -n "${YOUTUBE_OAUTH_REFRESH_TOKEN:-}" ]]; then
-    echo "      refreshToken: $(q "$YOUTUBE_OAUTH_REFRESH_TOKEN")"
-  fi
+# OAuth is always on but idle until an account is linked. Blizzbeat links it at runtime
+# (/config youtube) or from YOUTUBE_OAUTH_REFRESH_TOKEN. YOUTUBE_OAUTH_ENABLED=true without a
+# token makes the plugin print its own sign-in code in the logs instead.
+echo "    oauth:"
+echo "      enabled: true"
+if [[ -n "${YOUTUBE_OAUTH_REFRESH_TOKEN:-}" ]]; then
+  echo "      refreshToken: $(q "$YOUTUBE_OAUTH_REFRESH_TOKEN")"
+  echo "      skipInitialization: true"
+elif truthy "${YOUTUBE_OAUTH_ENABLED:-false}"; then
+  echo "      skipInitialization: false"
+else
+  echo "      skipInitialization: true"
 fi
 
 if [[ -n "${YOUTUBE_PO_TOKEN:-}" && -n "${YOUTUBE_VISITOR_DATA:-}" ]]; then
