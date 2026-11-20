@@ -151,6 +151,20 @@ Blizzbeat plays YouTube's Opus audio (about 130–160 kbps) straight through to 
 
 At any other volume, or with an effect on, Lavalink has to decode and re-encode the audio, which loses some quality. The player shows **🎧 original** next to the volume when you're getting the untouched stream. To make it quieter without losing quality, use Discord's own slider: right-click Blizzbeat → **User Volume**.
 
+## Staying up to date
+
+Blizzbeat keeps itself current in three layers:
+
+1. **Inside the container (on launch and daily).** It checks GitHub for newer releases of **Lavalink**, the **YouTube plugin** and **LavaSrc**:
+   - It only upgrades, never downgrades, and only within Lavalink 4.x.
+   - Updates are applied by restarting Lavalink **while nothing is playing**.
+   - If an updated version doesn't load, it's rolled back automatically and that version is skipped from then on.
+   - Every step is logged with the `[updater]` prefix, and `/config view` shows the versions running. Set `AUTO_UPDATE=false` to turn this off. A version you set yourself (e.g. `LAVASRC_VERSION`) is never changed.
+2. **On GitHub (weekly).** The **Update dependencies** workflow bumps those versions plus yt-cipher, runs the smoke test against them, commits the change if it passes, and rebuilds the image. The weekly rebuild also picks up Node package updates and base-image security fixes.
+3. **On your server.** Pull new images automatically. On Unraid, install **CA Auto Update Applications** from the Apps tab, then go to **Settings → Auto Update Applications → Docker** and turn on auto-update for `blizzbeat` (daily is fine). With Docker Compose, a scheduled `docker compose pull && docker compose up -d` or [Watchtower](https://containrrr.dev/watchtower/) does the same.
+
+The bot code itself, yt-cipher, Node and Java only change through new images (layers 2 and 3). A container can't replace its own image safely.
+
 ## Configuration (`.env`)
 
 Everything is documented in [`.env.example`](.env.example). The main settings are:
@@ -166,6 +180,7 @@ Everything is documented in [`.env.example`](.env.example). The main settings ar
 | `DEFAULT_VOLUME`, `MAX_VOLUME`, `DEFAULT_MAX_QUEUE`, `DEFAULT_AUTO_LEAVE_MINUTES`, `DEFAULT_SEARCH_SOURCE` | | Starting values for new servers |
 | `PROGRESS_UPDATE_SECONDS` | `10` | How often the progress bar refreshes |
 | `DEFAULT_REQUEST_COOLDOWN`, `DEFAULT_CONTROL_COOLDOWN` | `3`, `0` | Starting cooldowns in seconds |
+| `AUTO_UPDATE` | `true` | In-container updates of Lavalink and its plugins (see *Staying up to date*) |
 | `RESTORE_MAX_AGE_MINUTES` | `60` | Don't resume queues saved longer ago than this (24/7 servers always resume) |
 | `JAVA_OPTS` | `-Xms128m -Xmx512m` | Memory for the built-in Lavalink |
 

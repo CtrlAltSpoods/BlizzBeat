@@ -1,0 +1,68 @@
+name: Update dependencies
+
+# Weekly: bump Lavalink, the YouTube plugin, LavaSrc and yt-cipher to their latest releases,
+# smoke-test the result, push it to main if it passes, then rebuild the image (which also picks up
+# Node package updates and base-image security fixes even when no versions changed).
+on:
+  schedule:
+    - cron: '17 18 * * 0' # Sundays 18:17 UTC (Monday morning in Australia)
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: write
+
+concurrency:
+  group: update-deps
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Look for newer versions
+        id: bump
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: node scripts/bump-versions.mjs
+
+      - uses: docker/setup-buildx-action@v3
+        if: steps.bump.outputs.changed == 'true'
+
+      - name: Build candidate image
+        if: steps.bump.outputs.changed == 'true'
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          load: true
+          tags: blizzbeat:candidate
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Smoke test candidate
+        if: steps.bump.outputs.changed == 'true'
+        run: docker run --rm -v "$PWD/scripts:/app/scripts:ro" --entrypoint /app/scripts/smoke.sh blizzbeat:candidate
+
+      - name: Push to main
+        if: steps.bump.outputs.changed == 'true'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -am "chore(deps): ${{ steps.bump.outputs.summary }}"
+          git push origin HEAD:main
+
+      - name: Rebuild and publish the image
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run docker.yml --ref main
+
+      - name: Summary
+        if: always()
+        run: |
+          echo "### Dependency update: ${{ steps.bump.outputs.summary || 'check failed' }}" >> "$GITHUB_STEP_SUMMARY"

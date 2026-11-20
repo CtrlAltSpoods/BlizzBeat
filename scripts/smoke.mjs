@@ -258,6 +258,21 @@ for (const [label, query] of probes) {
   }
 }
 
+// --- in-container updater reached GitHub
+try {
+  const { readState, effectiveVersions } = await import('../src/updater.js');
+  const st = readState();
+  const v = effectiveVersions();
+  (st.lastCheck ? ok : bad)(
+    'updater check',
+    st.lastCheck
+      ? `checked ${st.lastCheck}; would run Lavalink ${v.lavalink.version}, youtube ${String(v.youtube.version).slice(0, 12)}, lavasrc ${v.lavasrc.version}${st.pending ? ' (update pending)' : ''}`
+      : 'no successful check recorded',
+  );
+} catch (err) {
+  bad('updater check', err.message);
+}
+
 // --- built-in yt-cipher answers
 try {
   const res = await withTimeout(fetch('http://127.0.0.1:8001/', { headers: { Authorization: process.env.LAVALINK_PASSWORD ?? '' } }), 5000, 'yt-cipher');

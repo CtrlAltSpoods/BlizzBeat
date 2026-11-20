@@ -7,6 +7,7 @@ if [[ -x /opt/yt-cipher/server ]]; then
   export YOUTUBE_REMOTE_CIPHER_URL=http://127.0.0.1:8001 YOUTUBE_REMOTE_CIPHER_PASSWORD=$LAVALINK_PASSWORD
   (cd /opt/yt-cipher && HOST=127.0.0.1 PORT=8001 API_TOKEN=$LAVALINK_PASSWORD OVERRIDE_PLAYER_VARIANT=IAS ./server > /tmp/ytcipher.log 2>&1 &)
 fi
+(cd /app && node --disable-warning=ExperimentalWarning src/updater-cli.js) | tee /tmp/updater.log
 /app/docker/lavalink-config.sh > /opt/lavalink/application.yml
 cd /opt/lavalink && java -Xmx512m -jar Lavalink.jar > /tmp/lavalink.log 2>&1 &
 for _ in $(seq 1 180); do

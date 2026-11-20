@@ -15,6 +15,7 @@ import { bannerDir, getSettings, resetSettings, updateSettings } from '../db.js'
 import { missingChannelPerms, refreshBanner, removeSetup, repost, requestUpdate, setupChannel } from '../controller.js';
 import { evaluateIdle, isAdmin, SEARCH_SOURCES, UserError } from '../music.js';
 import { clearVoiceStatus, setVoiceStatus } from '../status.js';
+import { versionSummary } from '../updater.js';
 import { forgetYoutubeLogin, startYoutubeLogin, youtubeStatus } from '../youtube.js';
 import { parseHexColor } from '../util/format.js';
 
@@ -309,6 +310,7 @@ function settingsEmbed(guildId) {
         inline: true,
       },
       { name: 'Blocked users', value: s.blockedUsers.length ? s.blockedUsers.map((id) => `<@${id}>`).join(', ') : 'None' },
+      { name: 'Versions', value: versionSummary().slice(0, 1024) },
     );
 }
 

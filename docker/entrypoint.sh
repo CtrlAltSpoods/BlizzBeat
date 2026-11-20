@@ -21,7 +21,7 @@ if [[ "$(id -u)" == "0" && -z "${BLIZZBEAT_USER_SET:-}" ]]; then
   mkdir -p "$DATA_DIR" "$LAVALINK_DIR/plugins"
   chown -R "$PUID:$PGID" "$DATA_DIR" "$LAVALINK_DIR" || log "WARNING: could not change ownership of $DATA_DIR / $LAVALINK_DIR"
   [[ -d /opt/yt-cipher ]] && chown -R "$PUID:$PGID" /opt/yt-cipher/player_cache 2>/dev/null || true
-  rm -f /tmp/lavalink.pass /tmp/blizzbeat.heartbeat
+  rm -f /tmp/lavalink.pass /tmp/blizzbeat.heartbeat /tmp/lavalink.pid /tmp/lavalink.restart-requested
   log "Running as UID $PUID / GID $PGID."
   export HOME=/tmp BLIZZBEAT_USER_SET=1
   if [[ "$PUID" != "0" ]]; then
@@ -55,8 +55,10 @@ if [[ -z "${YOUTUBE_REMOTE_CIPHER_URL:-}" && "${YOUTUBE_BUILTIN_CIPHER:-true}" !
   export YOUTUBE_REMOTE_CIPHER_PASSWORD="$LAVALINK_PASSWORD"
 fi
 
-/app/docker/lavalink-config.sh > "$LAVALINK_DIR/application.yml"
-log "Generated Lavalink config (Spotify: $SPOTIFY_ENABLED, YouTube plugin ${YOUTUBE_PLUGIN_VERSION:-default}, built-in yt-cipher: $BUILTIN_CIPHER)."
+log "Spotify: $SPOTIFY_ENABLED, built-in yt-cipher: $BUILTIN_CIPHER."
+
+# Check for newer Lavalink / plugin releases before starting (AUTO_UPDATE=false to skip).
+cd /app && node --disable-warning=ExperimentalWarning src/updater-cli.js || true
 
 start_cipher() {
   [[ "$BUILTIN_CIPHER" == true ]] || return 0
@@ -74,11 +76,17 @@ BOT_PID=""
 LAVALINK_STARTED=0
 
 start_lavalink() {
-  log "Starting Lavalink (the first start downloads plugins, which can take a minute)..."
+  # Regenerated on every (re)start so updates picked by the updater take effect.
+  local updates="$DATA_DIR/updates.env" jar="$LAVALINK_DIR/Lavalink.jar" auto_jar=""
+  ( set -a; [[ -f "$updates" ]] && . "$updates"; /app/docker/lavalink-config.sh ) > "$LAVALINK_DIR/application.yml"
+  [[ -f "$updates" ]] && auto_jar=$(grep -E "^AUTO_LAVALINK_JAR=" "$updates" | cut -d= -f2- | tr -d "'")
+  [[ -n "$auto_jar" && -f "$auto_jar" ]] && jar="$auto_jar"
+  log "Starting Lavalink ($(basename "$jar"); the first start downloads plugins, which can take a minute)..."
   cd "$LAVALINK_DIR"
   # shellcheck disable=SC2086
-  java ${JAVA_OPTS:-} -Duser.home=/tmp -jar Lavalink.jar &
+  java ${JAVA_OPTS:-} -Duser.home=/tmp -jar "$jar" &
   LAVALINK_PID=$!
+  echo "$LAVALINK_PID" > /tmp/lavalink.pid
   LAVALINK_STARTED=$(date +%s)
   cd /app
 }
@@ -124,6 +132,12 @@ while true; do
     sleep "$cipher_delay"
     cipher_delay=$(( cipher_delay * 2 > 120 ? 120 : cipher_delay * 2 ))
     start_cipher
+  fi
+  if ! kill -0 "$LAVALINK_PID" 2>/dev/null && [[ -f /tmp/lavalink.restart-requested ]]; then
+    rm -f /tmp/lavalink.restart-requested
+    log "Restarting Lavalink to apply updates..."
+    start_lavalink
+    continue
   fi
   if ! kill -0 "$LAVALINK_PID" 2>/dev/null; then
     (( $(date +%s) - LAVALINK_STARTED > 300 )) && delay=5
