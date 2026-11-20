@@ -45,8 +45,32 @@ export function escapeMd(text) {
   return String(text ?? '').replace(/([\\*_`~|[\]()>#-])/g, '\\$1');
 }
 
+/** For tracks played through the bot's yt-dlp media server: the original page URL and length. */
+export function mediaInfo(uri) {
+  if (!/^http:\/\/127\.0\.0\.1:\d+\/media\?/.test(String(uri ?? ''))) return null;
+  try {
+    const u = new URL(uri);
+    return { page: Buffer.from(u.searchParams.get('u') ?? '', 'base64url').toString(), durationMs: Number(u.searchParams.get('d')) || 0 };
+  } catch {
+    return null;
+  }
+}
+
+/** The link to show people (never the internal media-server address). */
+export function displayUri(track) {
+  return mediaInfo(track?.info?.uri)?.page ?? track?.info?.uri;
+}
+
+/** Length in ms, or 0 for live/unknown. Media-server streams report as live to Lavalink, so use the known length. */
+export function trackLength(track) {
+  const m = mediaInfo(track?.info?.uri);
+  if (m) return m.durationMs;
+  return track?.info?.isStream ? 0 : track?.info?.duration ?? 0;
+}
+
 export function trackDuration(track) {
-  return track?.info?.isStream ? 'LIVE' : formatDuration(track?.info?.duration ?? 0);
+  const len = trackLength(track);
+  return len ? formatDuration(len) : 'LIVE';
 }
 
 export function isUrl(text) {

@@ -17,12 +17,14 @@ import { bannerDir, getSettings, updateSettings } from './db.js';
 import { log } from './logger.js';
 import { currentEffect, EFFECTS, isOriginalQuality, LOOP_LABEL, SEARCH_SOURCES, voteStatus } from './music.js';
 import {
+  displayUri,
   escapeMd,
   formatDuration,
   isUrl,
   progressBar,
   sourceLabel,
   trackDuration,
+  trackLength,
   truncate,
 } from './util/format.js';
 
@@ -130,7 +132,7 @@ function queueContent(player) {
     length += line.length + 1;
   }
   const rest = tracks.length - lines.length;
-  const total = tracks.reduce((s, t) => s + (t.info.isStream ? 0 : t.info.duration ?? 0), 0);
+  const total = tracks.reduce((s, t) => s + trackLength(t), 0);
   const footer = `-# ${tracks.length} song${tracks.length === 1 ? '' : 's'} · ${formatDuration(total)} total${rest > 0 ? ` · and ${rest} more` : ''}`;
   return [header, ...lines, footer].join('\n');
 }
@@ -162,7 +164,8 @@ function idleEmbed(guildId, player, settings) {
 function playingEmbed(player, settings) {
   const track = player.queue.current;
   const info = track.info;
-  const position = Math.min(player.position ?? 0, info.duration || Infinity);
+  const length = trackLength(track);
+  const position = Math.min(player.position ?? 0, length || Infinity);
   const status = player.paused ? '⏸️ Paused' : '▶️ Now playing';
   const requester = track.requester;
 
@@ -174,9 +177,9 @@ function playingEmbed(player, settings) {
       [
         `by **${escapeMd(truncate(info.author, 100))}**`,
         '',
-        info.isStream
+        !length
           ? `${progressBar(0, 0)} \`${formatDuration(position)}\``
-          : `\`${formatDuration(position)}\` ${progressBar(position, info.duration)} \`${trackDuration(track)}\``,
+          : `\`${formatDuration(position)}\` ${progressBar(position, length)} \`${trackDuration(track)}\``,
       ].join('\n'),
     )
     .addFields(
@@ -191,7 +194,7 @@ function playingEmbed(player, settings) {
   const votes = voteStatus(player);
   if (votes) embed.addFields({ name: 'Skip votes', value: `🗳️ ${votes.count}/${votes.needed}`, inline: true });
 
-  if (isUrl(info.uri)) embed.setURL(info.uri);
+  if (isUrl(displayUri(track))) embed.setURL(displayUri(track));
   const art = info.artworkUrl ?? track.pluginInfo?.artworkUrl;
   if (art && isUrl(art)) embed.setImage(art);
   return embed;

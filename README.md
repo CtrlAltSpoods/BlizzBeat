@@ -16,7 +16,7 @@ A self-hosted Discord music bot with a dedicated player channel, in the spirit o
 - **Live status.** The bot shows "Listening to …" and sets the voice channel's status line to the current song.
 - **Cooldowns.** Admins set how often each person can request songs or press controls.
 - **Slash commands** for everyone (`/play` with live search suggestions) and for admins (`/setup`, `/config`).
-- **Sources:** YouTube, YouTube Music, SoundCloud, Bandcamp, Twitch, Vimeo, plus Spotify links and search once you add Spotify credentials.
+- **Sources:** YouTube, YouTube Music, Bandcamp, Twitch, Vimeo, Spotify (links and search once you add Spotify credentials), and **any link yt-dlp supports**: SoundCloud, Mixcloud, Audiomack, TikTok, X/Twitter, Reddit, Instagram, archive.org, direct audio files and [about 1,800 other sites](https://github.com/yt-dlp/yt-dlp/blob/master/supportedsites.md).
 - Per-server settings are stored in SQLite and kept across restarts and updates.
 
 ## 1. Create the Discord bot
@@ -156,6 +156,15 @@ Blizzbeat also tries to get you the best recording:
 
 At any other volume, or with an effect on, Lavalink has to decode and re-encode the audio, which loses some quality. The player shows **🎧 original** next to the volume when you're getting the untouched stream. To make it quieter without losing quality, use Discord's own slider: right-click Blizzbeat → **User Volume**.
 
+## Links from other sites (yt-dlp)
+
+YouTube, Spotify, Bandcamp, Twitch and Vimeo links play through Lavalink's own sources. **Any other link** is handed to yt-dlp, which supports [about 1,800 sites](https://github.com/yt-dlp/yt-dlp/blob/master/supportedsites.md), SoundCloud included. Here's what happens:
+1. yt-dlp reads the title, artist, length, artwork and playlist entries.
+2. When the song plays, ffmpeg converts its audio to Opus at 192 kbps (`MEDIA_OPUS_BITRATE`).
+3. Lavalink plays that from a small server inside the container. It only listens on 127.0.0.1 and only serves links the bot signed itself.
+
+For safety, links that point to private network addresses (your LAN, the container itself) are refused. Songs from these sites can't be seeked, and if yt-dlp can't read a SoundCloud link, Blizzbeat plays the same song from YouTube instead.
+
 ## Staying up to date
 
 Blizzbeat keeps itself current in three layers:
@@ -212,7 +221,7 @@ When a song is blocked, Blizzbeat also posts a reminder about this in its channe
 
 **Other YouTube errors.** Blizzbeat runs [yt-cipher](https://github.com/kikkia/yt-cipher) inside the container to decode YouTube's stream signatures, which fixes "Must find sig function". If YouTube changes again, set `YOUTUBE_PLUGIN_VERSION` to the newest release from <https://github.com/lavalink-devs/youtube-source/releases> and restart. Lavalink downloads it automatically.
 
-**SoundCloud.** SoundCloud changed its streaming format in November 2026, and Lavalink can't play the new one yet ([lavaplayer #204](https://github.com/lavalink-devs/lavaplayer/issues/204)). Until that's fixed upstream, Blizzbeat falls back to YouTube Music when a SoundCloud search fails.
+**SoundCloud.** SoundCloud changed its streaming format in November 2026, and Lavalink can't play the new one yet ([lavaplayer #204](https://github.com/lavalink-devs/lavaplayer/issues/204)). SoundCloud **links** play through yt-dlp instead (see below). SoundCloud **searches** still go through Lavalink, so they fall back to YouTube Music until that's fixed upstream.
 
 **"The application did not respond" / "Unknown interaction".** Discord gives a bot 3 seconds to acknowledge a command. On startup Blizzbeat logs a `Network check:` line with DNS time, Discord round-trip time and your server's clock offset, and warns if any of them could cause this. Common fixes on Unraid:
 - Turn on NTP: **Settings → Date and Time → Use NTP server: Yes**.

@@ -6,7 +6,7 @@ import { getSettings } from '../db.js';
 import { nowPlayingEmbed } from '../controller.js';
 import * as music from '../music.js';
 import { UserError } from '../music.js';
-import { escapeMd, formatDuration, isUrl, parseTime, trackDuration, truncate } from '../util/format.js';
+import { escapeMd, formatDuration, isUrl, parseTime, trackDuration, trackLength, truncate } from '../util/format.js';
 import { resolveSearchSource } from '../youtube.js';
 
 const guildOnly = (b) => b.setContexts(InteractionContextType.Guild);
@@ -112,7 +112,7 @@ function queueEmbed(guildId, page) {
   const pages = Math.max(1, Math.ceil(tracks.length / perPage));
   const p = Math.min(Math.max(page, 1), pages);
   const slice = tracks.slice((p - 1) * perPage, p * perPage);
-  const total = tracks.reduce((s, t) => s + (t.info.isStream ? 0 : t.info.duration ?? 0), 0);
+  const total = tracks.reduce((s, t) => s + trackLength(t), 0);
 
   const lines = slice.map((t, i) => {
     const n = (p - 1) * perPage + i + 1;

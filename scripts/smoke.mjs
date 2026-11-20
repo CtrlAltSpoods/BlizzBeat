@@ -272,6 +272,39 @@ for (const [label, query] of probes) {
   }
 }
 
+// --- anything yt-dlp supports: resolve, stream through the media server, and have Lavalink open it
+{
+  const media = await import('../src/media.js');
+  media.startMediaServer();
+  let g = 800;
+  for (const [label, link] of [
+    ['yt-dlp: SoundCloud', 'https://soundcloud.com/forss/flickermood'],
+    ['yt-dlp: direct MP3 link', 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3'],
+  ]) {
+    const gid = String(g++);
+    try {
+      const { items } = await withTimeout(media.resolveLink(link), 60_000, label);
+      const it = items[0];
+      const p = lavalink.createPlayer({ guildId: gid, voiceChannelId: '302', volume: 100 });
+      const res = await withTimeout(p.search({ query: media.mediaUrl(it.page, it.durationMs) }, { id: '1', displayName: 'probe' }), 40_000, `${label} load`);
+      if (!res.tracks?.length) {
+        bad(label, `Lavalink couldn't load the stream (${res.loadType} ${res.exception?.message ?? ''})`);
+        continue;
+      }
+      const outcome = new Promise((resolve) => {
+        lavalink.on('trackError', (pl, t, payload) => pl.guildId === gid && resolve(`error: ${payload?.exception?.message} ${payload?.exception?.cause ?? ''}`));
+        setTimeout(() => resolve('ok'), 12_000);
+      });
+      await p.play({ clientTrack: res.tracks[0] });
+      const r = await outcome;
+      (r === 'ok' ? ok : bad)(label, r === 'ok' ? `"${it.title}" by ${it.author} (${Math.round(it.durationMs / 1000)}s, ${it.source}) streams as Ogg Opus` : r);
+      await p.destroy('probe');
+    } catch (err) {
+      bad(label, err.message);
+    }
+  }
+}
+
 // --- in-container updater reached GitHub
 try {
   const { readState, effectiveVersions } = await import('../src/updater.js');

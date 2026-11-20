@@ -5,8 +5,9 @@ import { config } from './config.js';
 import { getSettings, updateSettings } from './db.js';
 import { log } from './logger.js';
 import { clearVoiceStatus } from './status.js';
+import { assertPublicUrl, isNativeLink, mediaUrl, resolveLink } from './media.js';
 import { resolveSearchSource, youtubeBackend } from './youtube.js';
-import { escapeMd, formatDuration, isUrl, trackDuration, truncate } from './util/format.js';
+import { displayUri, escapeMd, formatDuration, isUrl, trackDuration, trackLength, truncate } from './util/format.js';
 
 /** An error whose message is safe and friendly to show to the user. */
 export class UserError extends Error {}
@@ -126,7 +127,8 @@ export function assertCanControl(member, action) {
 
 function trackLink(track) {
   const title = escapeMd(truncate(track.info.title, 80));
-  return isUrl(track.info.uri) ? `[${title}](<${track.info.uri}>)` : title;
+  const uri = displayUri(track);
+  return isUrl(uri) ? `[${title}](<${uri}>)` : title;
 }
 
 /** Finds or creates the player for a member's voice channel, enforcing server rules. */
@@ -176,6 +178,39 @@ async function playerFor(guild, member, textChannelId) {
   return player;
 }
 
+/** Reads a link with yt-dlp and turns it into queueable tracks that Lavalink plays via the media server. */
+async function resolveWithYtdlp(url, settings, requester) {
+  try {
+    await assertPublicUrl(url);
+  } catch (err) {
+    throw new UserError(err.message);
+  }
+  try {
+    const { playlist, items } = await resolveLink(url, { maxItems: settings.allowPlaylists ? settings.maxQueue : 1 });
+    const tracks = items.map((it) =>
+      lavalink.utils.buildUnresolvedTrack(
+        {
+          title: it.title,
+          author: it.author,
+          duration: it.durationMs,
+          uri: mediaUrl(it.page, it.durationMs),
+          artworkUrl: it.artworkUrl,
+          sourceName: it.source,
+          identifier: it.page,
+          isStream: it.isLive,
+          isSeekable: false,
+        },
+        requester,
+      ),
+    );
+    if (!tracks.length) return { loadType: 'empty', tracks: [] };
+    return playlist ? { loadType: 'playlist', playlist: { name: playlist }, tracks } : { loadType: 'track', tracks };
+  } catch (err) {
+    log.info(`yt-dlp couldn't read ${url}: ${err.message}`);
+    return { loadType: 'error', exception: { message: err.message }, tracks: [] };
+  }
+}
+
 /**
  * Handles a song request from /play or from typing in the Blizzbeat channel.
  * Returns a short, user-facing summary.
@@ -204,11 +239,16 @@ export async function requestSongs({ guild, member, query, next = false, textCha
   const fallbackSource = resolveSearchSource('ytmsearch');
 
   let res;
-  try {
-    res = await player.search(link ? { query: text } : { query: text, source }, requester);
-  } catch (err) {
-    log.warn('Search failed', err);
-    throw new UserError(`I couldn't search for that: ${truncate(err?.message ?? 'unknown error', 150)}`);
+  if (link && !isNativeLink(text)) {
+    // Not a site Lavalink plays itself: let yt-dlp handle it (SoundCloud, Mixcloud, TikTok, direct audio, ...).
+    res = await resolveWithYtdlp(text, settings, requester);
+  } else {
+    try {
+      res = await player.search(link ? { query: text } : { query: text, source }, requester);
+    } catch (err) {
+      log.warn('Search failed', err);
+      throw new UserError(`I couldn't search for that: ${truncate(err?.message ?? 'unknown error', 150)}`);
+    }
   }
 
   // If a non-default search source fails (e.g. SoundCloud is down), try YouTube Music instead.
@@ -238,7 +278,7 @@ export async function requestSongs({ guild, member, query, next = false, textCha
   }
 
   if (res.loadType === 'error') {
-    throw new UserError(`I couldn't load that: ${truncate(res.exception?.message ?? 'unknown error', 150)}`);
+    throw new UserError(`I couldn't load that: ${truncate(String(res.exception?.message ?? 'unknown error').split('\n')[0], 200)}`);
   }
   if (res.loadType === 'empty' || !res.tracks?.length) {
     throw new UserError(`No results for **${escapeMd(truncate(text, 80))}**.`);
@@ -252,7 +292,7 @@ export async function requestSongs({ guild, member, query, next = false, textCha
   if (settings.maxSongMinutes > 0) {
     const max = settings.maxSongMinutes * 60_000;
     const before = tracks.length;
-    tracks = tracks.filter((t) => !t.info.isStream && t.info.duration <= max);
+    tracks = tracks.filter((t) => !t.info.isStream && trackLength(t) <= max);
     tooLong = before - tracks.length;
     if (!tracks.length) {
       throw new UserError(`That's longer than this server's ${settings.maxSongMinutes}-minute song limit.`);
@@ -286,7 +326,7 @@ export async function requestSongs({ guild, member, query, next = false, textCha
   const noteText = notes.length ? `\n-# ${notes.join(' · ')}` : '';
 
   if (isPlaylist) {
-    const total = tracks.reduce((sum, t) => sum + (t.info.isStream ? 0 : t.info.duration), 0);
+    const total = tracks.reduce((sum, t) => sum + trackLength(t), 0);
     const name = escapeMd(truncate(res.playlist?.name ?? 'playlist', 80));
     return `📃 Added **${tracks.length}** songs from **${name}** (${formatDuration(total)})${noteText}`;
   }
@@ -391,7 +431,7 @@ export async function seek(player, ms) {
   const track = player.queue.current;
   if (!track) throw new UserError('Nothing is playing.');
   if (!track.info.isSeekable || track.info.isStream) throw new UserError("This song can't be seeked.");
-  const target = Math.min(Math.max(ms, 0), track.info.duration - 1000);
+  const target = Math.min(Math.max(ms, 0), trackLength(track) - 1000);
   await player.seek(target);
   return `⏩ Jumped to \`${formatDuration(target)}\`.`;
 }

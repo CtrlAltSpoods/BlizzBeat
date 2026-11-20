@@ -53,7 +53,7 @@ lavalink:
       twitch: true
       vimeo: true
       nico: false
-      http: false
+      http: true # only ever given the bot's own 127.0.0.1 media-server links (yt-dlp sites)
       local: false
     bufferDurationMs: 400
     frameBufferDurationMs: 10000 # 10s of decoded audio buffered: rides out network hiccups

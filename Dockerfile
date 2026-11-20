@@ -33,10 +33,10 @@ ENV NODE_ENV=production \
     LAVALINK_DIR=/opt/lavalink \
     JAVA_OPTS="-Xms128m -Xmx512m"
 
-# Java 17 runtime for Lavalink, curl for downloads/health checks, tini as PID 1, Python for yt-dlp.
+# Java 17 runtime for Lavalink, curl for downloads/health checks, tini as PID 1, Python + ffmpeg for yt-dlp.
 RUN mkdir -p /usr/share/man/man1 \
  && apt-get update \
- && apt-get install -y --no-install-recommends openjdk-17-jre-headless curl ca-certificates tini python3 \
+ && apt-get install -y --no-install-recommends openjdk-17-jre-headless curl ca-certificates tini python3 ffmpeg \
  && rm -rf /var/lib/apt/lists/*
 
 # Lavalink server. Plugins (YouTube, LavaSrc/Spotify) are fetched on first start into a volume.

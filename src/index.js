@@ -8,6 +8,7 @@ import { allConfiguredGuilds } from './db.js';
 import { registerDiscordEvents, registerLavalinkEvents } from './events.js';
 import { allCommands, handleInteraction, INVITE_PERMISSIONS } from './interactions.js';
 import { startDiagnostics } from './diagnostics.js';
+import { startMediaServer } from './media.js';
 import { log } from './logger.js';
 import { destroyPlayer } from './music.js';
 import { markShuttingDown, restoreSessions, saveAll, startAutosave } from './persistence.js';
@@ -22,6 +23,7 @@ process.on('uncaughtException', (err) => log.error('Uncaught exception:', err));
 
 registerLavalinkEvents();
 registerDiscordEvents();
+startMediaServer();
 
 // Once Lavalink is connected, resume whatever was playing before the last restart.
 lavalink.nodeManager.on('connect', (node) => {
