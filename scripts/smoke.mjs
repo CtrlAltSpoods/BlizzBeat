@@ -304,6 +304,7 @@ for (const [label, query] of probes) {
   for (const [label, link] of [
     ['yt-dlp: SoundCloud', 'https://soundcloud.com/forss/flickermood'],
     ['yt-dlp: direct MP3 link', 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3'],
+    ['yt-dlp: YouTube through the media server', 'https://www.youtube.com/watch?v=dQw4w9WgXcQ'],
   ]) {
     const gid = String(g++);
     try {
@@ -321,7 +322,8 @@ for (const [label, query] of probes) {
       });
       await p.play({ clientTrack: res.tracks[0] });
       const r = await outcome;
-      (r === 'ok' ? ok : bad)(label, r === 'ok' ? `"${it.title}" by ${it.author} (${Math.round(it.durationMs / 1000)}s, ${it.source}) streams as Ogg Opus` : r);
+      const why = r === 'ok' ? null : lastMediaError(it.page) ?? r;
+      (r === 'ok' ? ok : bad)(label, r === 'ok' ? `"${it.title}" by ${it.author} (${Math.round(it.durationMs / 1000)}s, ${it.source}) streams as Ogg Opus` : why);
       await p.destroy('probe');
     } catch (err) {
       bad(label, err.message);

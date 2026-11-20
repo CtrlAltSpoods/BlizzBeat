@@ -3,11 +3,12 @@
 // small local HTTP server hands that to Lavalink's standard HTTP source. Only URLs signed by the bot are
 // served, and only on 127.0.0.1, so Lavalink can't be used to fetch arbitrary addresses.
 import { execFile, spawn } from 'node:child_process';
-import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
+import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import { lookup } from 'node:dns/promises';
-import { createReadStream, existsSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { createReadStream, existsSync, mkdirSync, readdirSync, readFileSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
 import http from 'node:http';
 import net from 'node:net';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { config } from './config.js';
 import { log } from './logger.js';
@@ -116,10 +117,41 @@ function ytdlpJson(args, timeoutMs = 45_000) {
 const cache = new Map(); // page url -> { media, expires }
 const CACHE_MS = 20 * 60_000;
 
+// YouTube only serves its audio to yt-dlp's own downloader (small ranged requests); a plain fetch of the
+// stream URL gets "403". yt-dlp's page info is kept on disk so the download starts without reading the
+// page a second time.
+const INFO_DIR = join(tmpdir(), 'blizzbeat-media');
+export const isYoutubePage = (page) => /^https?:\/\/([a-z0-9-]+\.)*(youtube\.com|youtu\.be)\//i.test(String(page ?? ''));
+
+function saveInfo(page, info) {
+  try {
+    mkdirSync(INFO_DIR, { recursive: true });
+    const file = join(INFO_DIR, `${createHash('sha1').update(page).digest('hex')}.json`);
+    writeFileSync(file, JSON.stringify(info));
+    for (const name of readdirSync(INFO_DIR)) {
+      const f = join(INFO_DIR, name);
+      if (Date.now() - statSync(f).mtimeMs > CACHE_MS + 60_000) unlinkSync(f);
+    }
+    return file;
+  } catch (err) {
+    log.debug(`[media] couldn't keep yt-dlp info: ${err.message}`);
+    return null;
+  }
+}
+
 function remember(page, info) {
   if (!info?.url) return;
+  const youtube = isYoutubePage(page);
   cache.set(page, {
-    media: { url: info.url, headers: info.http_headers ?? {}, protocol: info.protocol ?? '', acodec: info.acodec ?? '' },
+    media: {
+      url: info.url,
+      headers: info.http_headers ?? {},
+      protocol: info.protocol ?? '',
+      acodec: info.acodec ?? '',
+      formatId: info.format_id ?? null,
+      infoFile: youtube ? saveInfo(page, info) : null,
+      youtube,
+    },
     expires: Date.now() + CACHE_MS,
   });
   if (cache.size > 500) for (const [k, v] of cache) if (v.expires < Date.now()) cache.delete(k);
@@ -231,11 +263,17 @@ function ffmpegArgs(input, headers, copyOpus = false) {
 function startPipeline(page, media) {
   const procs = [];
   let ffmpeg;
-  if (media && DIRECT_PROTOCOLS.has(media.protocol)) {
+  if (media && !media.youtube && DIRECT_PROTOCOLS.has(media.protocol)) {
     ffmpeg = spawn(FFMPEG, ffmpegArgs(media.url, media.headers, media.acodec === 'opus'), { stdio: ['ignore', 'pipe', 'pipe'] });
   } else {
-    const dl = spawn(YTDLP, ['-q', '--no-warnings', '--no-playlist', '-f', 'bestaudio/best', '-o', '-', page], { stdio: ['ignore', 'pipe', 'pipe'] });
-    ffmpeg = spawn(FFMPEG, ffmpegArgs('pipe:0'), { stdio: ['pipe', 'pipe', 'pipe'] });
+    // yt-dlp downloads the audio itself. With the info from the earlier lookup it skips reading the page again
+    // and fetches the exact format we know the codec of (Opus is then passed through untouched).
+    const known = Boolean(media?.infoFile && media.formatId && existsSync(media.infoFile));
+    const args = ['-q', '--no-warnings', '--no-playlist', '--http-chunk-size', '10M'];
+    args.push(...(known ? ['--load-info-json', media.infoFile, '-f', media.formatId] : ['-f', 'bestaudio/best', page]));
+    args.push('-o', '-');
+    const dl = spawn(YTDLP, args, { stdio: ['ignore', 'pipe', 'pipe'] });
+    ffmpeg = spawn(FFMPEG, ffmpegArgs('pipe:0', null, known && media.acodec === 'opus'), { stdio: ['pipe', 'pipe', 'pipe'] });
     dl.stdout.pipe(ffmpeg.stdin).on('error', () => null);
     dl.stderr.on('data', (d) => {
       const text = String(d).trim();

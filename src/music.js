@@ -188,7 +188,9 @@ function toUnresolved(it, requester) {
       duration: it.durationMs,
       uri: mediaUrl(it.page, it.durationMs),
       artworkUrl: it.artworkUrl,
-      sourceName: it.source,
+      // Not a searchable source on purpose: if the media server can't serve the song, lavalink-client would
+      // otherwise quietly swap in a search result for the same title from another source.
+      sourceName: 'blizzbeat',
       identifier: it.page,
       isStream: it.isLive,
       isSeekable: false,
