@@ -354,10 +354,12 @@ for (const [label, query] of probes) {
         bad(label, `Lavalink couldn't load it (${res.loadType} ${res.exception?.message ?? ''})`);
         continue;
       }
+      let onErr;
       const errored = new Promise((resolve) => {
-        lavalink.on('trackError', (pl, tr, payload) => pl.guildId === gid && resolve(`error: ${payload?.exception?.message} ${payload?.exception?.cause ?? ''}`));
+        onErr = (pl, tr, payload) => pl.guildId === gid && resolve(`error: ${payload?.exception?.message} ${payload?.exception?.cause ?? ''}`);
+        lavalink.on('trackError', onErr);
         setTimeout(() => resolve(null), 6000);
-      });
+      }).finally(() => lavalink.off('trackError', onErr));
       await p.play({ clientTrack: t });
       await sleep(1500);
       let seekNote = 'not seekable';
@@ -378,6 +380,9 @@ for (const [label, query] of probes) {
   }
 
   // The real flow: a message with a file arrives in the player channel.
+  // (The fake client never logs in, so give it the bot user the handler compares against.)
+  const realUser = client.user;
+  client.user ??= { id: '100000000000000001', username: 'Blizzbeat', displayAvatarURL: () => undefined, setPresence: () => {} };
   try {
     const p = lavalink.getPlayer('200');
     const before = p?.queue.tracks.length ?? 0;
@@ -416,6 +421,7 @@ for (const [label, query] of probes) {
   } catch (err) {
     bad('drop a file in the channel', err.stack);
   }
+  client.user = realUser;
   cdn.close();
 }
 
