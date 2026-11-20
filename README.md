@@ -143,6 +143,14 @@ Commands used inside the Blizzbeat channel reply privately so the channel stays 
 
 Server owners can also change who sees these commands under **Server Settings → Integrations → Blizzbeat**.
 
+## Audio quality
+
+Blizzbeat plays YouTube's Opus audio (about 130–160 kbps) straight through to Discord, with no re-encoding, as long as:
+- the volume is **100%** (the default), and
+- no effect is selected.
+
+At any other volume, or with an effect on, Lavalink has to decode and re-encode the audio, which loses some quality. The player shows **🎧 original** next to the volume when you're getting the untouched stream. To make it quieter without losing quality, use Discord's own slider: right-click Blizzbeat → **User Volume**.
+
 ## Configuration (`.env`)
 
 Everything is documented in [`.env.example`](.env.example). The main settings are:

@@ -429,7 +429,7 @@ async function runConfig(interaction) {
       const v = options.getInteger('volume', true);
       if (v > s.maxVolume) throw new UserError(`That's above the max volume (${s.maxVolume}%). Raise it with ${commandMention('config', 'max-volume')} first.`);
       updateSettings(gid, { defaultVolume: v });
-      reply = `🔊 Default volume set to **${v}%** (used next time Blizzbeat joins).`;
+      reply = `🔊 Default volume set to **${v}%** (used next time Blizzbeat joins).${v === 100 ? '' : '\n-# Note: only 100% sends the original audio untouched; other levels re-encode it.'}`;
       break;
     }
     case 'max-volume': {

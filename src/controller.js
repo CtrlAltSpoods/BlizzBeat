@@ -15,7 +15,7 @@ import { client, commandMention, lavalink, queueHooks } from './client.js';
 import { config } from './config.js';
 import { bannerDir, getSettings, updateSettings } from './db.js';
 import { log } from './logger.js';
-import { currentEffect, EFFECTS, LOOP_LABEL, SEARCH_SOURCES, voteStatus } from './music.js';
+import { currentEffect, EFFECTS, isOriginalQuality, LOOP_LABEL, SEARCH_SOURCES, voteStatus } from './music.js';
 import {
   escapeMd,
   formatDuration,
@@ -181,7 +181,7 @@ function playingEmbed(player, settings) {
     )
     .addFields(
       { name: 'Requested by', value: requester?.id ? `<@${requester.id}>` : '📻 Autoplay', inline: true },
-      { name: 'Volume', value: `${player.volume}%`, inline: true },
+      { name: 'Volume', value: `${player.volume}%${isOriginalQuality(player) ? ' · 🎧 original' : ''}`, inline: true },
       { name: 'Loop', value: LOOP_LABEL[player.repeatMode] ?? 'Off', inline: true },
       { name: 'Autoplay', value: settings.autoplay ? 'On' : 'Off', inline: true },
       { name: 'Effect', value: `${EFFECTS[currentEffect(player)]?.label ?? 'Off'}`, inline: true },

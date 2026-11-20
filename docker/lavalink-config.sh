@@ -50,7 +50,7 @@ lavalink:
     bufferDurationMs: 400
     frameBufferDurationMs: 5000
     opusEncodingQuality: 10
-    resamplingQuality: LOW
+    resamplingQuality: HIGH # used for non-48kHz sources (SoundCloud, Bandcamp) and speed/pitch effects
     trackStuckThresholdMs: 10000
     useSeekGhosting: true
     youtubePlaylistLoadLimit: 6

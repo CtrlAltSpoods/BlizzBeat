@@ -50,7 +50,7 @@ export const config = {
 
   // Defaults for new servers (each can be changed per server with /config).
   defaults: {
-    defaultVolume: int('DEFAULT_VOLUME', 50, { min: 1, max: 150 }),
+    defaultVolume: int('DEFAULT_VOLUME', 100, { min: 1, max: 200 }),
     maxVolume: int('MAX_VOLUME', 150, { min: 1, max: 200 }),
     maxQueue: int('DEFAULT_MAX_QUEUE', 500, { min: 1, max: 5000 }),
     autoLeaveMinutes: int('DEFAULT_AUTO_LEAVE_MINUTES', 5, { min: 0, max: 1440 }),

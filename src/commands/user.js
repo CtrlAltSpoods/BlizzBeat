@@ -248,6 +248,10 @@ function helpEmbed(guildId) {
         value: `${commandMention('queue')} ${commandMention('nowplaying')} ${commandMention('shuffle')} ${commandMention('remove')} ${commandMention('move')} ${commandMention('clear')}`,
       },
       {
+        name: 'Best sound',
+        value: "Keep Blizzbeat at **100%** with no effect: it then sends the original audio with no re-encoding. Use Discord's own slider (right-click Blizzbeat → User Volume) to make it quieter for you.",
+      },
+      {
         name: 'Admins',
         value: `${commandMention('setup', 'create')} to make the player channel, ${commandMention('config', 'view')} to see every setting.`,
       },

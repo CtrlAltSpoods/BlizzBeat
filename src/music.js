@@ -319,11 +319,21 @@ export async function setLoop(player, mode) {
   return next === 'off' ? '➡️ Loop is off.' : next === 'track' ? '🔂 Looping this song.' : '🔁 Looping the queue.';
 }
 
+/**
+ * True when Lavalink can send the source's Opus audio to Discord untouched (no decode / re-encode):
+ * volume exactly 100% and no effect. Any other volume or effect means re-encoding.
+ */
+export function isOriginalQuality(player) {
+  return player?.volume === 100 && currentEffect(player) === 'off';
+}
+
+const QUALITY_TIP = '\n-# Tip: at **100%** Blizzbeat sends the original audio with no re-encoding. To change loudness without losing quality, use Discord\'s own slider (right-click Blizzbeat → User Volume).';
+
 export async function setVolume(player, volume) {
   const settings = getSettings(player.guildId);
   const v = Math.round(Math.min(Math.max(volume, 0), settings.maxVolume));
   await player.setVolume(v);
-  return `${v === 0 ? '🔇' : v < 50 ? '🔉' : '🔊'} Volume set to **${v}%**.`;
+  return `${v === 0 ? '🔇' : v < 50 ? '🔉' : '🔊'} Volume set to **${v}%**.${v === 100 ? ' 🎧 Original quality.' : QUALITY_TIP}`;
 }
 
 export async function seek(player, ms) {

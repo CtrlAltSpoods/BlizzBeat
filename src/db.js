@@ -70,6 +70,8 @@ export function defaultSettings() {
     // Cooldowns in seconds (0 = off). Admins are never limited.
     requestCooldown: d.requestCooldown,
     controlCooldown: d.controlCooldown,
+
+    settingsVersion: 2,
   };
 }
 
@@ -87,6 +89,12 @@ export function getSettings(guildId) {
     }
   }
   const settings = { ...defaultSettings(), ...stored };
+  // v2: the old default volume (50%) forced re-encoding; 100% passes YouTube's audio through untouched.
+  if (row && !stored.settingsVersion) {
+    if (stored.defaultVolume === 50) settings.defaultVolume = Math.min(100, settings.maxVolume);
+    settings.settingsVersion = 2;
+    upsertStmt.run(guildId, JSON.stringify(settings), Date.now());
+  }
   cache.set(guildId, settings);
   return settings;
 }
