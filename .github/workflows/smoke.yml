@@ -38,7 +38,7 @@ jobs:
           docker run --rm -e YOUTUBE_BACKEND=${{ matrix.backend }} -v "$PWD/scripts:/app/scripts:ro" --entrypoint /app/scripts/smoke.sh blizzbeat:smoke
 
       - name: yt-dlp works inside the image
-        if: matrix.backend == 'ytdlp'
+        if: always() && matrix.backend == 'ytdlp'
         run: |
           docker run --rm --entrypoint bash blizzbeat:smoke -c '
             set -e

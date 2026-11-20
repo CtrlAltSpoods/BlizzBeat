@@ -4,9 +4,10 @@ process.env.DATA_DIR ??= '/tmp/blizzbeat-smoke';
 process.env.DISCORD_TOKEN ??= 'smoke';
 
 const results = [];
+const YTDLP = process.env.YOUTUBE_BACKEND === 'ytdlp';
 const ok = (name, detail = '') => results.push({ name, pass: true, detail });
 // Known upstream/environment problems (YouTube's datacenter bot wall, SoundCloud's new format) are reported as WARN.
-const KNOWN = /sign in to confirm|requires login|not a bot|supported formats|Something went wrong while looking up/i;
+const KNOWN = /sign in to confirm|requires login|not a bot|supported formats|Something went wrong while looking up|status code: 403|playlist does not exist/i;
 const bad = (name, detail = '') => results.push({ name, pass: false, warn: KNOWN.test(String(detail)), detail });
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const withTimeout = (p, ms, label) =>
@@ -33,7 +34,7 @@ try {
 const events = [];
 for (const e of ['trackStart', 'trackEnd', 'trackError', 'trackStuck', 'queueEnd', 'playerCreate']) {
   lavalink.on(e, (player, track, payload) =>
-    events.push({ e, title: track?.info?.title, err: payload?.exception?.message ?? payload?.error }),
+    events.push({ e, title: track?.info?.title, err: [payload?.exception?.message ?? payload?.error, payload?.exception?.cause].filter(Boolean).join(' :: ') }),
   );
 }
 try {
@@ -51,7 +52,6 @@ try {
 
 // --- raw searches on every source
 const node = lavalink.nodeManager.leastUsedNodes()[0];
-const YTDLP = process.env.YOUTUBE_BACKEND === 'ytdlp';
 const music = YTDLP ? 'ytsearch' : 'ytmsearch';
 const searches = [
   [music, { query: 'rick astley never gonna give you up', source: music }],
@@ -249,7 +249,9 @@ for (const [label, query] of probes) {
       continue;
     }
     const outcome = new Promise((resolve) => {
-      const onErr = (pl, t, payload) => pl.guildId === gid && resolve(`error: ${(payload?.exception?.message ?? '').split('\n').slice(0, 4).join(' | ')}`);
+      const onErr = (pl, t, payload) =>
+        pl.guildId === gid &&
+        resolve(`error: ${[(payload?.exception?.message ?? '').split('\n').slice(0, 4).join(' | '), payload?.exception?.cause].filter(Boolean).join(' :: ')}`);
       lavalink.on('trackError', onErr);
       setTimeout(() => resolve('ok'), 10_000);
     });
