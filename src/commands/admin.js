@@ -570,11 +570,11 @@ async function runConfig(interaction) {
 export async function runAdminCommand(interaction) {
   if (!isAdmin(interaction.member)) throw new UserError('You need the **Manage Server** permission for this.');
   if (interaction.commandName === 'setup') {
-    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+    if (!interaction.deferred) await interaction.deferReply({ flags: MessageFlags.Ephemeral });
     return runSetup(interaction);
   }
   if (interaction.commandName === 'config') {
-    if (['banner', 'youtube'].includes(interaction.options.getSubcommand())) {
+    if (!interaction.deferred && ['banner', 'youtube'].includes(interaction.options.getSubcommand())) {
       await interaction.deferReply({ flags: MessageFlags.Ephemeral });
     }
     return runConfig(interaction);

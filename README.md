@@ -174,6 +174,10 @@ When a song is blocked, Blizzbeat also posts a reminder about this in its channe
 
 **SoundCloud.** SoundCloud changed its streaming format in November 2026, and Lavalink can't play the new one yet ([lavaplayer #204](https://github.com/lavalink-devs/lavaplayer/issues/204)). Until that's fixed upstream, Blizzbeat falls back to YouTube Music when a SoundCloud search fails.
 
+**"The application did not respond" / "Unknown interaction".** Discord gives a bot 3 seconds to acknowledge a command. On startup Blizzbeat logs a `Network check:` line with DNS time, Discord round-trip time and your server's clock offset, and warns if any of them could cause this. Common fixes on Unraid:
+- Turn on NTP: **Settings → Date and Time → Use NTP server: Yes**.
+- Set the container's DNS: add `--dns 1.1.1.1` to **Extra Parameters**.
+
 **Health check.** The **Smoke test** workflow in GitHub Actions runs the real image against a real Lavalink after every push, and prints a PASS/WARN/FAIL report. YouTube blocks GitHub's servers, so YouTube playback shows as WARN there even when it works on your own connection.
 
 ## How it's built

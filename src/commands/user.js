@@ -139,7 +139,7 @@ export async function runUserCommand(interaction, flags) {
 
   switch (name) {
     case 'play': {
-      await interaction.deferReply({ flags });
+      if (!interaction.deferred) await interaction.deferReply({ flags });
       const content = await music.requestSongs({
         guild,
         member,

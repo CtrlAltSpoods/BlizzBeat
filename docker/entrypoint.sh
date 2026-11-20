@@ -80,7 +80,7 @@ trap shutdown TERM INT
 start_lavalink
 log "Starting Blizzbeat..."
 cd /app
-node --disable-warning=ExperimentalWarning src/index.js &
+node --disable-warning=ExperimentalWarning --dns-result-order=ipv4first src/index.js &
 BOT_PID=$!
 
 # Supervise: if Lavalink dies, restart it (with backoff). If the bot dies, stop the container

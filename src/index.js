@@ -7,6 +7,7 @@ import { requestUpdate, startProgressTicker } from './controller.js';
 import { allConfiguredGuilds } from './db.js';
 import { registerDiscordEvents, registerLavalinkEvents } from './events.js';
 import { allCommands, handleInteraction, INVITE_PERMISSIONS } from './interactions.js';
+import { startDiagnostics } from './diagnostics.js';
 import { log } from './logger.js';
 import { destroyPlayer } from './music.js';
 import { markShuttingDown, restoreSessions, saveAll, startAutosave } from './persistence.js';
@@ -69,6 +70,7 @@ client.once(Events.ClientReady, async (ready) => {
     log.error('Failed to register slash commands:', err);
   }
 
+  startDiagnostics();
   startProgressTicker();
   startAutosave();
   updatePresence();

@@ -5,6 +5,7 @@ import { adminCommands, runAdminCommand } from './commands/admin.js';
 import { autocompletePlay, runUserCommand, userCommands } from './commands/user.js';
 import { isControllerChannel, requestUpdate } from './controller.js';
 import { getSettings } from './db.js';
+import { deliveryDelayMs } from './diagnostics.js';
 import { log } from './logger.js';
 import * as music from './music.js';
 import { UserError } from './music.js';
@@ -117,6 +118,23 @@ async function handleCommand(interaction) {
   const isAdminCmd = adminNames.has(interaction.commandName);
   const quiet = isAdminCmd || isControllerChannel(interaction.guildId, interaction.channelId);
   const flags = quiet ? MessageFlags.Ephemeral : undefined;
+
+  // Acknowledge first: Discord only waits 3 seconds. Everything else happens after.
+  const received = Date.now();
+  const lag = deliveryDelayMs(interaction);
+  try {
+    await interaction.deferReply({ flags });
+  } catch (err) {
+    log.warn(
+      `Couldn't acknowledge /${interaction.commandName} in time: it reached the bot ${lag}ms after it was sent ` +
+        `and the acknowledgement took ${Date.now() - received}ms (Discord's limit is 3000ms total). ${err.message}`,
+    );
+    return;
+  }
+  const ackMs = Date.now() - received;
+  if (ackMs + Math.max(lag, 0) > 1500) {
+    log.warn(`/${interaction.commandName} was slow to acknowledge: delivery ${lag}ms + acknowledgement ${ackMs}ms (limit 3000ms).`);
+  }
 
   try {
     const result = isAdminCmd ? await runAdminCommand(interaction) : await runUserCommand(interaction, flags);

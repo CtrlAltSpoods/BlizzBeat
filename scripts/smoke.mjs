@@ -138,6 +138,8 @@ function fakeInteraction(commandName, opts = {}, sub = null) {
     channel: { parentId: null },
     deferred: false,
     replied: false,
+    createdTimestamp: Date.now(),
+    isRepliable: () => true,
     inCachedGuild: () => true,
     isAutocomplete: () => false,
     isButton: () => false,
