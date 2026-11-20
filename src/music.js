@@ -5,7 +5,7 @@ import { config } from './config.js';
 import { getSettings, updateSettings } from './db.js';
 import { log } from './logger.js';
 import { clearVoiceStatus } from './status.js';
-import { assertPublicUrl, isNativeLink, mediaUrl, resolveLink } from './media.js';
+import { assertPublicUrl, isNativeLink, mediaUrl, resolveLink, searchYoutube } from './media.js';
 import { resolveSearchSource, youtubeBackend } from './youtube.js';
 import { displayUri, escapeMd, formatDuration, isUrl, trackDuration, trackLength, truncate } from './util/format.js';
 
@@ -178,6 +178,24 @@ async function playerFor(guild, member, textChannelId) {
   return player;
 }
 
+/** A yt-dlp item as a queueable track that Lavalink plays through the bot's media server. */
+function toUnresolved(it, requester) {
+  return lavalink.utils.buildUnresolvedTrack(
+    {
+      title: it.title,
+      author: it.author,
+      duration: it.durationMs,
+      uri: mediaUrl(it.page, it.durationMs),
+      artworkUrl: it.artworkUrl,
+      sourceName: it.source,
+      identifier: it.page,
+      isStream: it.isLive,
+      isSeekable: false,
+    },
+    requester,
+  );
+}
+
 /** Reads a link with yt-dlp and turns it into queueable tracks that Lavalink plays via the media server. */
 async function resolveWithYtdlp(url, settings, requester) {
   try {
@@ -187,22 +205,7 @@ async function resolveWithYtdlp(url, settings, requester) {
   }
   try {
     const { playlist, items } = await resolveLink(url, { maxItems: settings.allowPlaylists ? settings.maxQueue : 1 });
-    const tracks = items.map((it) =>
-      lavalink.utils.buildUnresolvedTrack(
-        {
-          title: it.title,
-          author: it.author,
-          duration: it.durationMs,
-          uri: mediaUrl(it.page, it.durationMs),
-          artworkUrl: it.artworkUrl,
-          sourceName: it.source,
-          identifier: it.page,
-          isStream: it.isLive,
-          isSeekable: false,
-        },
-        requester,
-      ),
-    );
+    const tracks = items.map((it) => toUnresolved(it, requester));
     if (!tracks.length) return { loadType: 'empty', tracks: [] };
     return playlist ? { loadType: 'playlist', playlist: { name: playlist }, tracks } : { loadType: 'track', tracks };
   } catch (err) {
@@ -246,8 +249,27 @@ export async function requestSongs({ guild, member, query, next = false, textCha
     try {
       res = await player.search(link ? { query: text } : { query: text, source }, requester);
     } catch (err) {
-      log.warn('Search failed', err);
-      throw new UserError(`I couldn't search for that: ${truncate(err?.message ?? 'unknown error', 150)}`);
+      log.warn('Search failed', err?.message ?? err);
+      // In yt-dlp mode the yt-dlp search fallback below gets a chance first.
+      if (link || youtubeBackend() !== 'ytdlp') {
+        throw new UserError(`I couldn't search for that: ${truncate(err?.message ?? 'unknown error', 150)}`);
+      }
+      res = { loadType: 'error', exception: { message: err?.message ?? 'search failed' }, tracks: [] };
+    }
+  }
+
+  // yt-dlp mode: LavaSrc's search occasionally chokes on an odd YouTube result. Search with yt-dlp
+  // directly and play through the bot's media server instead.
+  const failed = (r) => !r?.loadType || r.loadType === 'error' || r.loadType === 'empty' || !r.tracks?.length;
+  if (!link && youtubeBackend() === 'ytdlp' && source === 'ytsearch' && failed(res)) {
+    try {
+      const items = (await searchYoutube(text, 3)).slice(0, 1);
+      if (items.length) {
+        log.info(`[${guild.id}] Lavalink yt-dlp search failed; using yt-dlp search directly for "${text}"`);
+        res = { loadType: 'search', tracks: items.map((it) => toUnresolved(it, requester)) };
+      }
+    } catch (err) {
+      log.debug('yt-dlp search fallback failed:', err.message);
     }
   }
 

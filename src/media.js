@@ -156,6 +156,19 @@ export async function resolveLink(url, { maxItems = 500 } = {}) {
   return { playlist: null, items: [item] };
 }
 
+/** Plain YouTube search through yt-dlp (backup for when Lavalink's yt-dlp search trips over a result). */
+export async function searchYoutube(query, limit = 5) {
+  const info = await ytdlpJson(['-J', '--flat-playlist', '--no-warnings', `ytsearch${limit}:${query}`]);
+  return (info.entries ?? [])
+    .filter((e) => e && (e.url || e.id))
+    .map((e) =>
+      toItem(
+        { ...e, webpage_url: e.url?.startsWith('http') ? e.url : `https://www.youtube.com/watch?v=${e.id}`, extractor_key: 'youtube' },
+        e.url,
+      ),
+    );
+}
+
 async function mediaFor(page) {
   const hit = cache.get(page);
   if (hit && hit.expires > Date.now()) return hit.media;

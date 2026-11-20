@@ -7,7 +7,7 @@ const results = [];
 const YTDLP = process.env.YOUTUBE_BACKEND === 'ytdlp';
 const ok = (name, detail = '') => results.push({ name, pass: true, detail });
 // Known upstream/environment problems (YouTube's datacenter bot wall, SoundCloud's new format) are reported as WARN.
-const KNOWN = /sign in to confirm|requires login|not a bot|supported formats|Something went wrong while looking up|status code: 403|playlist does not exist|Read timed out|aborted due to timeout/i;
+const KNOWN = /sign in to confirm|requires login|not a bot|supported formats|Something went wrong while looking up|status code: 403|playlist does not exist|Read timed out|aborted due to timeout|known upstream|HTTP Error 403/i;
 const bad = (name, detail = '') => results.push({ name, pass: false, warn: KNOWN.test(String(detail)), detail });
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const withTimeout = (p, ms, label) =>
@@ -62,7 +62,8 @@ const searches = [
 for (const [label, q] of searches) {
   try {
     const res = await withTimeout(node.search(q, { id: '1', displayName: 'smoke' }), 20_000, label);
-    if (res.loadType === 'error' || !res.tracks?.length) bad(`search: ${label}`, `${res.loadType} ${res.exception?.message ?? ''}`);
+    if (!res.loadType) bad(`search: ${label}`, 'Lavalink returned an internal error (known upstream LavaSrc yt-dlp parsing bug; the bot falls back to its own yt-dlp search)');
+    else if (res.loadType === 'error' || !res.tracks?.length) bad(`search: ${label}`, `${res.loadType} ${res.exception?.message ?? ''}`);
     else ok(`search: ${label}`, `${res.loadType}, ${res.tracks.length} tracks, first="${res.tracks[0].info.title}"`);
   } catch (err) {
     bad(`search: ${label}`, err.message);
