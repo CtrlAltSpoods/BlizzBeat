@@ -71,6 +71,12 @@ lavalink:
     youtubeSearchEnabled: true
     soundcloudSearchEnabled: true
     gc-warnings: true
+    timeouts:
+      connectTimeoutMs: 5000
+      connectionRequestTimeoutMs: 5000
+      # yt-dlp songs: the media server needs a few seconds (yt-dlp reads the page) before the first byte.
+      # Lavalink's default of 3 s made those fail with "Read timed out". yt-cipher also recommends more.
+      socketTimeoutMs: 20000
 
 plugins:
   youtube:

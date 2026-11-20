@@ -5,7 +5,7 @@ import { config } from './config.js';
 import { getSettings, updateSettings } from './db.js';
 import { log } from './logger.js';
 import { clearVoiceStatus } from './status.js';
-import { assertPublicUrl, isNativeLink, mediaUrl, resolveLink, searchYoutube, warmMedia } from './media.js';
+import { assertPublicUrl, isNativeLink, lastMediaError, mediaUrl, resolveLink, searchYoutube, warmMedia } from './media.js';
 import { saveAttachment, UPLOAD_PREFIX, UploadError, uploadNameOf } from './uploads.js';
 import { resolveSearchSource, youtubeBackend } from './youtube.js';
 import { displayUri, escapeMd, formatDuration, isUrl, mediaInfo, trackDuration, trackLength, truncate } from './util/format.js';
@@ -404,7 +404,18 @@ async function enqueue({ guild, member, player, settings, next, tracks, groupNam
   const startNow = !player.queue.current;
   if (startNow || next || player.queue.tracks.length === 0) warmTrack(tracks[0]);
   await player.queue.add(tracks, next && !startNow ? 0 : undefined);
-  if (startNow) await player.play({ paused: false });
+  if (startNow) {
+    try {
+      await player.play({ paused: false });
+    } catch (err) {
+      // The first song couldn't be loaded at all (e.g. the media server couldn't fetch it).
+      const page = mediaInfo(tracks[0]?.info?.uri)?.page;
+      const why = (page && lastMediaError(page)) || 'the audio could not be loaded';
+      log.info(`[${guild.id}] couldn't start "${tracks[0]?.info?.title}": ${err?.message ?? err}`);
+      if (player.queue.tracks.length) await player.play({ paused: false }).catch(() => null);
+      throw new UserError(`I couldn't play **${escapeMd(truncate(tracks[0]?.info?.title ?? 'that', 80))}**: ${truncate(why, 200)}`);
+    }
+  }
   touchCooldown(member, 'request');
   evaluateIdle(guild.id);
 

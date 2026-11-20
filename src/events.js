@@ -83,7 +83,9 @@ export function registerLavalinkEvents() {
   lavalink.on('trackError', (player, track, payload) => {
     // Songs played through the media server fail with a bare HTTP error; use yt-dlp's real reason instead.
     const mediaReason = lastMediaError(mediaInfo(track?.info?.uri)?.page);
-    const reason = mediaReason ?? String(payload?.exception?.message ?? payload?.message ?? 'unknown error');
+    let reason = mediaReason ?? String(payload?.exception?.message ?? payload?.message ?? 'unknown error');
+    // lavalink-client's wording when a media-server song couldn't be loaded at all.
+    if (/SearchQuerySource|No closest Track/i.test(reason)) reason = 'the audio could not be loaded (the site refused it or took too long)';
     const cause = mediaReason ? '' : String(payload?.exception?.cause ?? '');
     log.warn(`[${player.guildId}] track error: ${track?.info?.title} :: ${reason.replace(/\n+/g, ' | ')} ${cause}`);
     noteTrackFailure(player.guildId);
