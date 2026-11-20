@@ -53,13 +53,28 @@ export function missingChannelPerms(channel) {
 
 /* ------------------------------ Banner ------------------------------ */
 
+// Bump when the default banner changes, so channels showing an older default get the new one on startup.
+const DEFAULT_BANNER_VERSION = 2;
+
+function defaultBanner() {
+  const animated = join(config.assetsDir, 'banner.webp');
+  if (config.animatedBanner && existsSync(animated)) return { path: animated, name: 'blizzbeat-banner.webp' };
+  return { path: join(config.assetsDir, 'banner.png'), name: 'blizzbeat-banner.png' };
+}
+
+/** Which default banner a channel should show (null when the server uses its own banner). */
+function defaultBannerId(guildId) {
+  if (getSettings(guildId).customBanner) return null;
+  return `${defaultBanner().name}#${DEFAULT_BANNER_VERSION}`;
+}
+
 export function bannerFile(guildId) {
   const custom = getSettings(guildId).customBanner;
   if (custom) {
     const p = join(bannerDir(), custom);
     if (existsSync(p)) return { path: p, name: `blizzbeat-banner${custom.slice(custom.lastIndexOf('.'))}` };
   }
-  return { path: join(config.assetsDir, 'banner.png'), name: 'blizzbeat-banner.png' };
+  return defaultBanner();
 }
 
 function bannerPayload(guildId) {
@@ -254,6 +269,7 @@ async function ensureLayout(guildId, channel) {
     // The banner has to sit above the player, so both get re-posted.
     if (controller) await controller.delete().catch(() => null);
     banner = await channel.send(bannerPayload(guildId));
+    updateSettings(guildId, { bannerAsset: defaultBannerId(guildId) });
     controller = null;
   }
   if (!controller) {
@@ -278,6 +294,13 @@ async function render(guildId) {
   const existing = await fetchMessage(channel, settings.controllerMessageId);
   const bannerOk = existing ? await fetchMessage(channel, settings.bannerMessageId) : null;
   if (existing && bannerOk) {
+    const wanted = defaultBannerId(guildId);
+    if (wanted && settings.bannerAsset !== wanted) {
+      // A newer default banner (e.g. the animated one) than the one posted: swap it in place.
+      await bannerOk.edit({ ...bannerPayload(guildId), attachments: [] });
+      updateSettings(guildId, { bannerAsset: wanted });
+      log.info(`[${guildId}] banner updated to ${wanted}`);
+    }
     await existing.edit(controllerPayload(guildId));
   } else {
     await ensureLayout(guildId, channel);
@@ -379,6 +402,7 @@ export function refreshBanner(guildId) {
       return true;
     }
     await banner.edit({ ...bannerPayload(guildId), attachments: [] });
+    updateSettings(guildId, { bannerAsset: defaultBannerId(guildId) });
     return true;
   });
 }

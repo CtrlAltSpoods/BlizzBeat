@@ -39,6 +39,7 @@ export const config = {
   // Typing song names in the Blizzbeat channel needs the privileged
   // "Message Content" intent enabled in the Discord developer portal.
   messageContent: bool('ENABLE_MESSAGE_CONTENT', true),
+  animatedBanner: bool('ANIMATED_BANNER', true),
 
   spotifyEnabled: bool('SPOTIFY_ENABLED', false),
 

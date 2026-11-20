@@ -63,6 +63,7 @@ export function defaultSettings() {
     maxSongMinutes: 0, // 0 = no limit
     maxPerUser: 0, // 0 = no limit
     allowPlaylists: true,
+    bannerAsset: null, // which default banner is posted (so a new default can replace it)
     uploadsEnabled: true, // audio files dropped into the player channel
     uploadMaxMb: 100, // per file; Discord's own upload limit applies too
 

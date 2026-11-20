@@ -59,7 +59,7 @@ COPY package.json package-lock.json* ./
 RUN npm install --omit=dev --no-audit --no-fund && npm cache clean --force
 
 COPY src ./src
-COPY assets/banner.png assets/avatar.png ./assets/
+COPY assets/banner.png assets/banner.webp assets/avatar.png ./assets/
 COPY docker ./docker
 
 RUN chmod +x docker/*.sh && ln -s /app/docker/yt-dlp.sh /usr/local/bin/blizzbeat-yt-dlp \

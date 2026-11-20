@@ -132,6 +132,9 @@ db.updateSettings('200', { requestCooldown: 0 });
 try {
   await ctrl.setupChannel(guild, textChannel);
   ok('player channel setup', `${posted.length} messages posted (banner + player)`);
+  const file = posted[0]?.payload?.files?.[0];
+  const name = file?.name ?? file?.data?.name ?? '';
+  (name.endsWith('.webp') ? ok : bad)('animated banner posted', name || JSON.stringify(posted[0]?.payload ?? {}).slice(0, 120));
 } catch (err) {
   bad('player channel setup', err.stack);
 }
