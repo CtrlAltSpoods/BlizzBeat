@@ -504,7 +504,9 @@ export function favouriteFromTrack(track) {
   const ytId = youtubeIdOf(track);
   const link = ytId ? `https://www.youtube.com/watch?v=${ytId}` : displayUri(track);
   if (!isUrl(link)) throw new UserError("This song doesn't have a link, so it can't be saved.");
-  const live = Boolean(track.info.isStream);
+  // Songs from the media server always look like streams to Lavalink; their real length is in the link.
+  const media = mediaInfo(track.info.uri);
+  const live = media ? !(media.durationMs > 0) : Boolean(track.info.isStream);
   return {
     key: ytId ? `yt:${ytId}` : `u:${createHash('sha1').update(link).digest('hex').slice(0, 32)}`,
     data: {
@@ -514,7 +516,7 @@ export function favouriteFromTrack(track) {
       durationMs: live ? 0 : trackLength(track),
       artworkUrl: track.info.artworkUrl ?? null,
       // YouTube links replay through whichever YouTube backend is active; other yt-dlp sites need the media server.
-      media: !ytId && Boolean(mediaInfo(track.info.uri)),
+      media: !ytId && Boolean(media),
       source: ytId ? 'youtube' : track.info.sourceName,
       live,
     },
