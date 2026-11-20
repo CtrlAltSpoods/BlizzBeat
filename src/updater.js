@@ -3,10 +3,12 @@
 // only ever upgrades over the versions baked into the image, are applied by restarting Lavalink while
 // nothing is playing, and are rolled back automatically if Lavalink doesn't come up with them.
 // Everything else (bot code, Node packages, yt-cipher, Java) updates through new images.
-import { existsSync, mkdirSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { config } from './config.js';
 import { log } from './logger.js';
+import { youtubeBackend } from './youtube.js';
 
 const VERSIONS_FILE = process.env.VERSIONS_FILE || new URL('../docker/versions.env', import.meta.url).pathname;
 const UPDATES_ENV = join(config.dataDir, 'updates.env');
@@ -158,6 +160,53 @@ async function downloadLavalinkJar(version) {
   return file;
 }
 
+/* ------------------------------ yt-dlp ------------------------------ */
+
+const YTDLP_WRAPPER = '/usr/local/bin/blizzbeat-yt-dlp';
+
+export function ytdlpVersion() {
+  try {
+    return execFileSync(YTDLP_WRAPPER, ['--version'], { timeout: 20_000, encoding: 'utf8' }).trim();
+  } catch {
+    return null;
+  }
+}
+
+/** yt-dlp versions are dates like 2026.11.15 or 2026.11.15.1 */
+function ytdlpNewer(a, b) {
+  const x = String(a).split('.').map(Number);
+  const y = String(b).split('.').map(Number);
+  for (let i = 0; i < Math.max(x.length, y.length); i++) {
+    if ((x[i] ?? 0) !== (y[i] ?? 0)) return (x[i] ?? 0) > (y[i] ?? 0);
+  }
+  return false;
+}
+
+/**
+ * Keeps $DATA_DIR/bin/yt-dlp at the newest release (only while the yt-dlp backend is in use).
+ * yt-dlp is started fresh for every request, so no restart is needed.
+ */
+async function updateYtdlp() {
+  if (youtubeBackend() !== 'ytdlp' || !existsSync(YTDLP_WRAPPER)) return;
+  const current = ytdlpVersion();
+  const latest = await latestRelease('yt-dlp/yt-dlp');
+  if (current && !ytdlpNewer(latest.tag, current)) return;
+  const res = await fetch(`https://github.com/yt-dlp/yt-dlp/releases/download/${latest.tag}/yt-dlp`, {
+    redirect: 'follow',
+    signal: AbortSignal.timeout(120_000),
+  });
+  if (!res.ok) throw new Error(`yt-dlp ${latest.tag} download: HTTP ${res.status}`);
+  const dir = join(config.dataDir, 'bin');
+  mkdirSync(dir, { recursive: true });
+  const tmp = join(dir, 'yt-dlp.new');
+  writeFileSync(tmp, Buffer.from(await res.arrayBuffer()));
+  chmodSync(tmp, 0o755);
+  const got = execFileSync(tmp, ['--version'], { timeout: 20_000, encoding: 'utf8' }).trim();
+  if (got !== latest.tag) throw new Error(`downloaded yt-dlp reports ${got}, expected ${latest.tag}`);
+  renameSync(tmp, join(dir, 'yt-dlp'));
+  say(`yt-dlp: ${current ?? 'unknown'} -> ${latest.tag}`);
+}
+
 /* ------------------------------ checking ------------------------------ */
 
 /**
@@ -211,6 +260,8 @@ export async function checkForUpdates() {
     expect.lavasrc = latest.tag;
     changes.push({ component: 'lavasrc', label: 'LavaSrc', from: v.lavasrc.version, to: latest.tag });
   });
+
+  await step('yt-dlp', updateYtdlp);
 
   state.lastCheck = new Date().toISOString();
   if (changes.length) {
@@ -319,6 +370,22 @@ function armPendingTimeout() {
   pendingTimer.unref();
 }
 
+/** Restarts Lavalink as soon as nothing is playing (checks every 30 s). Returns true if it restarted right away. */
+export function restartLavalinkWhenIdle(isBusy, onRestart = () => {}) {
+  if (!isBusy()) {
+    const ok = restartLavalink();
+    if (ok) onRestart();
+    return ok;
+  }
+  const timer = setInterval(() => {
+    if (isBusy()) return;
+    clearInterval(timer);
+    if (restartLavalink()) onRestart();
+  }, 30_000);
+  timer.unref();
+  return false;
+}
+
 /**
  * Daily check while running. `isBusy()` returns true while any server is playing; the Lavalink
  * restart waits until it's false.
@@ -333,13 +400,8 @@ export function startDailyUpdates(isBusy) {
       return [];
     });
     if (!changes.length) return;
-    const waitForQuiet = setInterval(() => {
-      if (isBusy()) return;
-      clearInterval(waitForQuiet);
-      if (restartLavalink()) armPendingTimeout();
-    }, 60_000);
-    waitForQuiet.unref();
     say('Will restart Lavalink to apply the update as soon as nothing is playing.');
+    restartLavalinkWhenIdle(isBusy, armPendingTimeout);
   };
   setInterval(run, day).unref();
 }
@@ -355,5 +417,6 @@ export function versionSummary() {
     ? `Auto-update on${state.lastCheck ? `, last checked <t:${Math.floor(Date.parse(state.lastCheck) / 1000)}:R>` : ''}`
     : 'Auto-update off';
   const pending = state.pending ? '\n⏳ Update waiting to be applied' : '';
-  return `${running}\n${auto}${pending}`;
+  const ytdlp = youtubeBackend() === 'ytdlp' ? `\nYouTube via yt-dlp ${ytdlpVersion() ?? '(not found)'}` : '\nYouTube via the Lavalink plugin';
+  return `${running}${ytdlp}\n${auto}${pending}`;
 }

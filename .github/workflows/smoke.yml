@@ -16,6 +16,10 @@ jobs:
   smoke:
     runs-on: ubuntu-latest
     timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        backend: [plugin, ytdlp]
     steps:
       - uses: actions/checkout@v4
       - uses: docker/setup-buildx-action@v3
@@ -31,10 +35,24 @@ jobs:
 
       - name: Bot + Lavalink smoke test
         run: |
-          docker run --rm -v "$PWD/scripts:/app/scripts:ro" --entrypoint /app/scripts/smoke.sh blizzbeat:smoke
+          docker run --rm -e YOUTUBE_BACKEND=${{ matrix.backend }} -v "$PWD/scripts:/app/scripts:ro" --entrypoint /app/scripts/smoke.sh blizzbeat:smoke
+
+      - name: yt-dlp works inside the image
+        if: matrix.backend == 'ytdlp'
+        run: |
+          docker run --rm --entrypoint bash blizzbeat:smoke -c '
+            set -e
+            echo "yt-dlp $(/usr/local/bin/blizzbeat-yt-dlp --version), $(deno --version | head -1)"
+            /usr/local/bin/blizzbeat-yt-dlp -q --no-warnings --flat-playlist -J "ytsearch2:daft punk get lucky" | python3 -c "import sys,json; d=json.load(sys.stdin); print("search ok:", [e["title"] for e in d["entries"]])"
+            /usr/local/bin/blizzbeat-yt-dlp -q --no-warnings -f bestaudio -J "https://www.youtube.com/watch?v=dQw4w9WgXcQ" 2>&1 | python3 -c "import sys,json
+          raw=sys.stdin.read()
+          try:
+              d=json.loads(raw); print("stream ok:", d.get("format_id"), d.get("acodec"), d.get("abr"), "kbps")
+          except Exception:
+              print("stream blocked from CI (expected on datacenter IPs):", raw.strip()[:300])" || true'
 
       - name: Full container startup (fake token, Unraid PUID/PGID)
-        if: always()
+        if: always() && matrix.backend == 'plugin'
         run: |
           docker run -d --name bb -e DISCORD_TOKEN=invalid.token.value -e PUID=99 -e PGID=100 blizzbeat:smoke
           for _ in $(seq 1 90); do docker logs bb 2>&1 | grep -q "Starting Blizzbeat" && break; sleep 2; done

@@ -65,6 +65,8 @@ export const lavalink = new LavalinkManager({
       secure: config.lavalink.secure,
       retryAmount: 1000,
       retryDelay: 5_000,
+      // Blizzbeat checks sources itself; the built-in check doesn't know yt-dlp serves YouTube.
+      autoChecks: { sourcesValidations: false, pluginValidations: false },
     },
   ],
   sendToShard: (guildId, payload) => client.guilds.cache.get(guildId)?.shard?.send(payload),

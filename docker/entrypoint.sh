@@ -77,11 +77,14 @@ LAVALINK_STARTED=0
 
 start_lavalink() {
   # Regenerated on every (re)start so updates picked by the updater take effect.
-  local updates="$DATA_DIR/updates.env" jar="$LAVALINK_DIR/Lavalink.jar" auto_jar=""
-  ( set -a; [[ -f "$updates" ]] && . "$updates"; /app/docker/lavalink-config.sh ) > "$LAVALINK_DIR/application.yml"
+  local updates="$DATA_DIR/updates.env" jar="$LAVALINK_DIR/Lavalink.jar" auto_jar="" backend
+  # YouTube backend: chosen in Discord (/config youtube, saved in $DATA_DIR) > YOUTUBE_BACKEND > plugin.
+  backend=$(tr -cd 'a-z' < "$DATA_DIR/youtube-backend" 2>/dev/null)
+  backend="${backend:-${YOUTUBE_BACKEND:-plugin}}"
+  ( set -a; [[ -f "$updates" ]] && . "$updates"; YOUTUBE_BACKEND="$backend" /app/docker/lavalink-config.sh ) > "$LAVALINK_DIR/application.yml"
   [[ -f "$updates" ]] && auto_jar=$(grep -E "^AUTO_LAVALINK_JAR=" "$updates" | cut -d= -f2- | tr -d "'")
   [[ -n "$auto_jar" && -f "$auto_jar" ]] && jar="$auto_jar"
-  log "Starting Lavalink ($(basename "$jar"); the first start downloads plugins, which can take a minute)..."
+  log "Starting Lavalink ($(basename "$jar"), YouTube via ${backend}; the first start downloads plugins, which can take a minute)..."
   cd "$LAVALINK_DIR"
   # shellcheck disable=SC2086
   java ${JAVA_OPTS:-} -Duser.home=/tmp -jar "$jar" &

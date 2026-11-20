@@ -20,6 +20,9 @@ RUN case "$TARGETARCH" in arm64) target=aarch64-unknown-linux-gnu ;; *) target=x
       --allow-net --allow-read --allow-write --allow-env --include worker.ts server.ts \
  && cp -r docs /out/docs && mkdir -p /out/player_cache
 
+# --- Deno: the JavaScript runtime yt-dlp needs for YouTube (multi-arch, binary only) ---------------
+FROM denoland/deno:bin AS deno
+
 # --- Blizzbeat ------------------------------------------------------------------------------------
 FROM node:22-bookworm-slim
 
@@ -30,10 +33,10 @@ ENV NODE_ENV=production \
     LAVALINK_DIR=/opt/lavalink \
     JAVA_OPTS="-Xms128m -Xmx512m"
 
-# Java 17 runtime for Lavalink, curl for downloads/health checks, tini as PID 1.
+# Java 17 runtime for Lavalink, curl for downloads/health checks, tini as PID 1, Python for yt-dlp.
 RUN mkdir -p /usr/share/man/man1 \
  && apt-get update \
- && apt-get install -y --no-install-recommends openjdk-17-jre-headless curl ca-certificates tini \
+ && apt-get install -y --no-install-recommends openjdk-17-jre-headless curl ca-certificates tini python3 \
  && rm -rf /var/lib/apt/lists/*
 
 # Lavalink server. Plugins (YouTube, LavaSrc/Spotify) are fetched on first start into a volume.
@@ -42,6 +45,14 @@ RUN mkdir -p "$LAVALINK_DIR/plugins" \
     "https://github.com/lavalink-devs/Lavalink/releases/download/${LAVALINK_VERSION}/Lavalink.jar"
 
 COPY --from=ytcipher /out /opt/yt-cipher
+COPY --from=deno /deno /usr/local/bin/deno
+
+# yt-dlp (official build, includes its YouTube challenge solver scripts). Used when YOUTUBE_BACKEND=ytdlp.
+# The in-container updater keeps a newer copy in $DATA_DIR/bin when yt-dlp releases one.
+RUN mkdir -p /opt/yt-dlp \
+ && curl -fsSL -o /opt/yt-dlp/yt-dlp "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp" \
+ && chmod 755 /opt/yt-dlp/yt-dlp \
+ && /opt/yt-dlp/yt-dlp --version
 
 WORKDIR /app
 COPY package.json package-lock.json* ./
@@ -51,7 +62,7 @@ COPY src ./src
 COPY assets/banner.png assets/avatar.png ./assets/
 COPY docker ./docker
 
-RUN chmod +x docker/*.sh \
+RUN chmod +x docker/*.sh && ln -s /app/docker/yt-dlp.sh /usr/local/bin/blizzbeat-yt-dlp \
  && mkdir -p /data \
  && chown -R node:node /app /data "$LAVALINK_DIR" /opt/yt-cipher
 

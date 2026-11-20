@@ -7,6 +7,7 @@ import { nowPlayingEmbed } from '../controller.js';
 import * as music from '../music.js';
 import { UserError } from '../music.js';
 import { escapeMd, formatDuration, isUrl, parseTime, trackDuration, truncate } from '../util/format.js';
+import { resolveSearchSource } from '../youtube.js';
 
 const guildOnly = (b) => b.setContexts(InteractionContextType.Guild);
 
@@ -272,6 +273,7 @@ export async function autocompletePlay(interaction) {
   const settings = getSettings(interaction.guildId);
   let source = settings.searchSource;
   if (source === 'spsearch' && !config.spotifyEnabled) source = 'ytmsearch';
+  source = resolveSearchSource(source);
 
   const timeout = new Promise((resolve) => setTimeout(() => resolve(null), 2200));
   const res = await Promise.race([

@@ -133,7 +133,7 @@ Commands used inside the Blizzbeat channel reply privately so the channel stays 
 | `/config stay-247` | Stay in voice 24/7 |
 | `/config vote-skip enabled [percent]` | Listeners vote to skip other people's songs (default 50% of the channel). Admins, DJs, the requester and anyone alone with the bot skip instantly. |
 | `/config cooldowns [requests] [controls]` | Seconds each person must wait between song requests and between controls (0 = off, admins exempt). Run it with no options to see the current values. |
-| `/config youtube` | Sign in to YouTube with a spare Google account (fixes "confirm you're not a bot"), check status, or sign out |
+| `/config youtube` | Sign in to YouTube with a spare Google account (fixes "confirm you're not a bot"), check status, sign out, or switch YouTube between the Lavalink plugin and yt-dlp |
 | `/config voice-status` | Show the current song as the voice channel's status |
 | `/config search-source` | Where typed song names are searched: YouTube Music, YouTube, SoundCloud or Spotify |
 | `/config banner [image]` | Upload a custom banner, or leave empty to restore the default. The banner message is edited, not re-posted. |
@@ -181,6 +181,7 @@ Everything is documented in [`.env.example`](.env.example). The main settings ar
 | `ENABLE_MESSAGE_CONTENT` | `true` | Set to `false` if you can't enable the Message Content intent. `/play` still works. |
 | `SPOTIFY_CLIENT_ID` / `SPOTIFY_CLIENT_SECRET` | — | Turns on Spotify links and search |
 | `YOUTUBE_PLUGIN_VERSION` | tested build | Leave empty for the default (a youtube-source build with the TV client fix). Set a newer release when one ships. |
+| `YOUTUBE_BACKEND` | `plugin` | `plugin` or `ytdlp` (also switchable with `/config youtube`) |
 | `YOUTUBE_BUILTIN_CIPHER` | `true` | Runs yt-cipher inside the container to decode YouTube stream signatures |
 | `DEFAULT_VOLUME`, `MAX_VOLUME`, `DEFAULT_MAX_QUEUE`, `DEFAULT_AUTO_LEAVE_MINUTES`, `DEFAULT_SEARCH_SOURCE` | | Starting values for new servers |
 | `PROGRESS_UPDATE_SECONDS` | `10` | How often the progress bar refreshes |
@@ -201,6 +202,14 @@ When a song is blocked, Blizzbeat also posts a reminder about this in its channe
 
 **"TVHTML5: The page needs to be reloaded".** This is a youtube-source bug ([#226](https://github.com/lavalink-devs/youtube-source/issues/226)) that's fixed but not in a release yet. Blizzbeat uses a fixed development build by default. Leave `YOUTUBE_PLUGIN_VERSION` empty, or remove it if you set it.
 
+**Trying yt-dlp instead.** Blizzbeat can play YouTube through [yt-dlp](https://github.com/yt-dlp/yt-dlp) instead of Lavalink's YouTube plugin. Switch with `/config youtube` → **Play YouTube through yt-dlp** (or set `YOUTUBE_BACKEND=ytdlp`), and switch back the same way. Lavalink restarts for about 20 seconds once nothing is playing. What changes:
+- yt-dlp is updated very often, and Blizzbeat downloads each new release automatically (launch + daily).
+- Searches use plain YouTube (yt-dlp can't search YouTube Music), and each search and song start takes a second or two longer.
+- YouTube's bot check applies to yt-dlp too. Its fix is a cookies file instead of `/config youtube` sign-in:
+  1. In a **private/incognito** window, sign in to YouTube with a **spare** Google account.
+  2. Export the youtube.com cookies in Netscape format (for example with the "Get cookies.txt LOCALLY" extension), then close the window without signing out.
+  3. Save the file as `youtube-cookies.txt` in the data folder (Unraid: `/mnt/user/appdata/blizzbeat/data/`). It's used from the next song on.
+
 **Other YouTube errors.** Blizzbeat runs [yt-cipher](https://github.com/kikkia/yt-cipher) inside the container to decode YouTube's stream signatures, which fixes "Must find sig function". If YouTube changes again, set `YOUTUBE_PLUGIN_VERSION` to the newest release from <https://github.com/lavalink-devs/youtube-source/releases> and restart. Lavalink downloads it automatically.
 
 **SoundCloud.** SoundCloud changed its streaming format in November 2026, and Lavalink can't play the new one yet ([lavaplayer #204](https://github.com/lavalink-devs/lavaplayer/issues/204)). Until that's fixed upstream, Blizzbeat falls back to YouTube Music when a SoundCloud search fails.
@@ -218,6 +227,7 @@ Docker container (tini as PID 1)
 ├── Lavalink 4.2 (Java 17), only listening on 127.0.0.1:2333
 │   └── plugins: youtube-source, LavaSrc (Spotify)
 ├── yt-cipher (Deno, compiled), 127.0.0.1:8001, decodes YouTube stream signatures
+├── yt-dlp + Deno, used by LavaSrc when YOUTUBE_BACKEND=ytdlp (docker/yt-dlp.sh adds cookies)
 └── Blizzbeat (Node 22, discord.js v14, lavalink-client)
     ├── src/controller.js   banner + player message, edited in place with debounced, rate-limited updates
     ├── src/music.js        requests, limits, permissions, controls, auto-leave

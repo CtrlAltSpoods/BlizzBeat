@@ -7,7 +7,7 @@ import { getSettings } from './db.js';
 import { log } from './logger.js';
 import { autoplayNext, checkVotes, clearVotes, evaluateIdle, forgetGuild, requestSongs, UserError } from './music.js';
 import { dropSession, scheduleSave } from './persistence.js';
-import { isYoutubeBlock } from './youtube.js';
+import { hasCookies, isYoutubeBlock, youtubeBackend } from './youtube.js';
 import { clearVoiceStatus, setVoiceStatus, updatePresence } from './status.js';
 import { escapeMd, truncate } from './util/format.js';
 
@@ -76,6 +76,17 @@ export function registerLavalinkEvents() {
       const last = lastBlockHint.get(player.guildId) ?? 0;
       const longHint = Date.now() - last > 10 * 60_000;
       if (longHint) lastBlockHint.set(player.guildId, Date.now());
+      if (youtubeBackend() === 'ytdlp') {
+        flash(
+          player.guildId,
+          `⚠️ YouTube blocked **${title}** through yt-dlp ("confirm you're not a bot").\n` +
+            (hasCookies()
+              ? 'The `youtube-cookies.txt` file may have expired. Export fresh cookies from a spare account.'
+              : `yt-dlp needs a YouTube login: see ${commandMention('config', 'youtube')} → **Status** for how to add \`youtube-cookies.txt\`.`),
+          longHint ? 60_000 : 15_000,
+        );
+        return;
+      }
       flash(
         player.guildId,
         `⚠️ YouTube blocked **${title}** (it wants a signed-in account).${details}\n` +

@@ -15,8 +15,15 @@ import { bannerDir, getSettings, resetSettings, updateSettings } from '../db.js'
 import { missingChannelPerms, refreshBanner, removeSetup, repost, requestUpdate, setupChannel } from '../controller.js';
 import { evaluateIdle, isAdmin, SEARCH_SOURCES, UserError } from '../music.js';
 import { clearVoiceStatus, setVoiceStatus } from '../status.js';
-import { versionSummary } from '../updater.js';
-import { forgetYoutubeLogin, startYoutubeLogin, youtubeStatus } from '../youtube.js';
+import { restartLavalinkWhenIdle, versionSummary, ytdlpVersion } from '../updater.js';
+import {
+  forgetYoutubeLogin,
+  hasCookies,
+  setYoutubeBackend,
+  startYoutubeLogin,
+  youtubeBackend,
+  youtubeStatus,
+} from '../youtube.js';
 import { parseHexColor } from '../util/format.js';
 
 const admin = (b) => b.setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild).setContexts(InteractionContextType.Guild);
@@ -171,6 +178,8 @@ export const adminCommands = [
                 { name: 'Sign in (use a spare Google account)', value: 'login' },
                 { name: 'Status', value: 'status' },
                 { name: 'Sign out', value: 'logout' },
+                { name: 'Play YouTube through yt-dlp', value: 'use-ytdlp' },
+                { name: 'Play YouTube through the Lavalink plugin (default)', value: 'use-plugin' },
               ),
           ),
       )
@@ -346,20 +355,67 @@ async function setBanner(guildId, attachment) {
   return shown ? '🖼️ Banner updated.' : `🖼️ Banner saved. It will show once you run ${commandMention('setup', 'create')}.`;
 }
 
+const COOKIE_HELP = [
+  '**Giving yt-dlp a YouTube login (cookies):**',
+  '1. In a **private/incognito** browser window, sign in to YouTube with a **spare** Google account.',
+  '2. Export the cookies for youtube.com in Netscape format, e.g. with the "Get cookies.txt LOCALLY" extension, then close that window without signing out.',
+  '3. Save the file as `youtube-cookies.txt` in Blizzbeat\'s data folder (Unraid: `/mnt/user/appdata/blizzbeat/data/`). It\'s picked up on the next song, no restart needed.',
+].join('\n');
+
 async function runYoutube(interaction) {
   const action = interaction.options.getString('action', true);
+  const backend = youtubeBackend();
+  const isBusy = () => [...lavalink.players.values()].some((p) => p.queue.current);
+
+  if (action === 'use-ytdlp' || action === 'use-plugin') {
+    const wanted = action === 'use-ytdlp' ? 'ytdlp' : 'plugin';
+    if (wanted === backend) {
+      return { content: `YouTube is already playing through **${wanted === 'ytdlp' ? 'yt-dlp' : 'the Lavalink plugin'}**.` };
+    }
+    setYoutubeBackend(wanted);
+    const now = restartLavalinkWhenIdle(isBusy);
+    const name = wanted === 'ytdlp' ? 'yt-dlp' : 'the Lavalink YouTube plugin';
+    const when = now
+      ? 'Switching now; the music engine restarts, which takes about 20 seconds.'
+      : 'It switches as soon as nothing is playing (the music engine restarts for about 20 seconds).';
+    const extra =
+      wanted === 'ytdlp'
+        ? hasCookies()
+          ? '\n✅ Found `youtube-cookies.txt`; yt-dlp will use it.'
+          : `\n\nIf YouTube says "confirm you're not a bot", yt-dlp needs cookies:\n${COOKIE_HELP}`
+        : '\nThe plugin uses the account from **Sign in** (if you signed in before, it still is).';
+    return { content: `🔁 YouTube will play through **${name}**. ${when}${extra}` };
+  }
+
   if (action === 'status') {
+    if (backend === 'ytdlp') {
+      return {
+        content: [
+          `▶️ YouTube plays through **yt-dlp ${ytdlpVersion() ?? '(not found!)'}**.`,
+          hasCookies()
+            ? '🍪 Using `youtube-cookies.txt`.'
+            : `🍪 No \`youtube-cookies.txt\`. Fine until YouTube asks to "confirm you're not a bot".\n\n${COOKIE_HELP}`,
+          `-# Switch back with ${commandMention('config', 'youtube')} → Lavalink plugin.`,
+        ].join('\n'),
+      };
+    }
     const st = await youtubeStatus();
     if (!st.available) return { content: "⚠️ I can't reach Lavalink's YouTube source right now." };
     return {
-      content: st.signedIn
-        ? '✅ Blizzbeat is signed in to YouTube.'
-        : `❌ Not signed in. If songs fail with "Sign in to confirm you're not a bot", run ${commandMention('config', 'youtube')} → Sign in.`,
+      content: [
+        '▶️ YouTube plays through the **Lavalink plugin**.',
+        st.signedIn
+          ? '✅ Signed in to YouTube.'
+          : `❌ Not signed in. If songs fail with "Sign in to confirm you're not a bot", run ${commandMention('config', 'youtube')} → Sign in.`,
+      ].join('\n'),
     };
   }
   if (action === 'logout') {
     forgetYoutubeLogin();
     return { content: '👋 Removed the saved YouTube sign-in. Restart the container to fully sign out.' };
+  }
+  if (backend === 'ytdlp') {
+    return { content: `ℹ️ YouTube is playing through yt-dlp, which uses a cookies file instead of this sign-in.\n\n${COOKIE_HELP}` };
   }
 
   const flow = await startYoutubeLogin().catch((err) => {

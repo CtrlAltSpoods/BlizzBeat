@@ -21,6 +21,12 @@ if [[ ",$YOUTUBE_CLIENTS," != *",TV,"* ]]; then
   YOUTUBE_CLIENTS="${YOUTUBE_CLIENTS/MUSIC/MUSIC,TV}"
   [[ ",$YOUTUBE_CLIENTS," != *",TV,"* ]] && YOUTUBE_CLIENTS="TV,$YOUTUBE_CLIENTS"
 fi
+# YouTube backend: "plugin" (youtube-source) or "ytdlp" (yt-dlp through LavaSrc).
+YOUTUBE_BACKEND="${YOUTUBE_BACKEND:-plugin}"
+[[ "$YOUTUBE_BACKEND" == "ytdlp" ]] || YOUTUBE_BACKEND=plugin
+YT_PLUGIN_ON=true
+YTDLP_ON=false
+if [[ "$YOUTUBE_BACKEND" == "ytdlp" ]]; then YT_PLUGIN_ON=false; YTDLP_ON=true; fi
 SPOTIFY_ON=false
 truthy "${SPOTIFY_ENABLED:-false}" && SPOTIFY_ON=true
 
@@ -63,7 +69,7 @@ lavalink:
 
 plugins:
   youtube:
-    enabled: true
+    enabled: ${YT_PLUGIN_ON} # off when yt-dlp handles YouTube
     allowSearch: true
     allowDirectVideoIds: true
     allowDirectPlaylistIds: true
@@ -107,12 +113,23 @@ fi
 
 cat <<YAML
   lavasrc:
-    # Spotify tracks are matched to YouTube Music first (official audio uploads, not music videos).
     providers:
+YAML
+if [[ "$YTDLP_ON" == true ]]; then
+  cat <<YAML
+      - 'ytsearch:"%ISRC%"'
+      - 'ytsearch:%QUERY%'
+YAML
+else
+  # Spotify tracks are matched to YouTube Music first (official audio uploads, not music videos).
+  cat <<YAML
       - 'ytmsearch:"%ISRC%"'
       - 'ytmsearch:%QUERY%'
       - 'ytsearch:"%ISRC%"'
       - 'ytsearch:%QUERY%'
+YAML
+fi
+cat <<YAML
     sources:
       spotify: ${SPOTIFY_ON}
       applemusic: false
@@ -123,8 +140,13 @@ cat <<YAML
       vkmusic: false
       tidal: false
       qobuz: false
-      ytdlp: false
+      ytdlp: ${YTDLP_ON}
       jiosaavn: false
+    ytdlp:
+      path: "/usr/local/bin/blizzbeat-yt-dlp"
+      searchLimit: 10
+      mixPlaylistLoadLimit: 25
+      playlistLoadLimit: 200
 YAML
 
 if [[ "$SPOTIFY_ON" == true ]]; then

@@ -15,7 +15,7 @@ const withTimeout = (p, ms, label) =>
 const { client, lavalink } = await import('../src/client.js');
 const { registerLavalinkEvents, registerDiscordEvents } = await import('../src/events.js');
 const { allCommands, handleInteraction } = await import('../src/interactions.js');
-const music = await import('../src/music.js');
+const musicMod = await import('../src/music.js');
 const ctrl = await import('../src/controller.js');
 const db = await import('../src/db.js');
 registerLavalinkEvents();
@@ -42,6 +42,8 @@ try {
   await withTimeout(connected, 30_000, 'Lavalink connect');
   const node = lavalink.nodeManager.leastUsedNodes()[0];
   const info = await node.fetchInfo();
+  if (YTDLP && !info.sourceManagers.includes('ytdlp')) bad('yt-dlp source registered', info.sourceManagers.join(','));
+  else if (YTDLP) ok('yt-dlp source registered', 'ytdlp in sourceManagers; youtube plugin source off: ' + !info.sourceManagers.includes('youtube'));
   ok('lavalink connected', `v${info.version?.semver} sources=${info.sourceManagers.join(',')} plugins=${info.plugins.map((p) => `${p.name}@${p.version}`).join(',')}`);
 } catch (err) {
   bad('lavalink connected', err.stack);
@@ -49,8 +51,10 @@ try {
 
 // --- raw searches on every source
 const node = lavalink.nodeManager.leastUsedNodes()[0];
+const YTDLP = process.env.YOUTUBE_BACKEND === 'ytdlp';
+const music = YTDLP ? 'ytsearch' : 'ytmsearch';
 const searches = [
-  ['ytmsearch', { query: 'rick astley never gonna give you up', source: 'ytmsearch' }],
+  [music, { query: 'rick astley never gonna give you up', source: music }],
   ['ytsearch', { query: 'daft punk get lucky', source: 'ytsearch' }],
   ['scsearch', { query: 'lofi hip hop', source: 'scsearch' }],
   ['youtube url', { query: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ' }],
@@ -200,11 +204,11 @@ if (player) {
 
   // controls
   for (const [label, fn] of [
-    ['pause', () => music.pause(player)],
-    ['resume', () => music.resume(player)],
-    ['effect bassboost', () => music.applyEffect(player, 'bassboost')],
-    ['effect off', () => music.applyEffect(player, 'off')],
-    ['volume', () => music.setVolume(player, 70)],
+    ['pause', () => musicMod.pause(player)],
+    ['resume', () => musicMod.resume(player)],
+    ['effect bassboost', () => musicMod.applyEffect(player, 'bassboost')],
+    ['effect off', () => musicMod.applyEffect(player, 'off')],
+    ['volume', () => musicMod.setVolume(player, 70)],
   ]) {
     try {
       ok(`control: ${label}`, await withTimeout(fn(), 10_000, label));
@@ -230,7 +234,7 @@ try {
 const probes = [
   ['youtube: rick astley', 'https://www.youtube.com/watch?v=dQw4w9WgXcQ'],
   ['youtube: queen', 'ytsearch:queen bohemian rhapsody'],
-  ['youtube music: daft punk', 'ytmsearch:daft punk get lucky'],
+  [`${music}: daft punk`, `${music}:daft punk get lucky`],
   ['soundcloud url', 'https://soundcloud.com/forss/flickermood'],
 ];
 let probeGuild = 700;
@@ -294,12 +298,12 @@ try {
 const ytCmd = fakeInteraction('config', { action: 'status' }, 'youtube');
 await handleInteraction(ytCmd).catch(() => null);
 const ytReply = ytCmd.out.replies.at(-1)?.content ?? '';
-(ytReply.includes('signed in') || ytReply.includes('Not signed in') ? ok : bad)('/config youtube status', ytReply.slice(0, 100));
+(/signed in|Not signed in|yt-dlp \d/i.test(ytReply) ? ok : bad)('/config youtube status', ytReply.split('\n').slice(0, 2).join(' / ').slice(0, 140));
 
 // --- report
 let failures = 0;
 let warnings = 0;
-console.log(`\n================ BLIZZBEAT SMOKE TEST [${process.env.SMOKE_LABEL ?? 'default'}] ================`);
+console.log(`\n================ BLIZZBEAT SMOKE TEST [YouTube via ${YTDLP ? 'yt-dlp' : 'plugin'}] ================`);
 for (const r of results) {
   if (!r.pass && r.warn) warnings++;
   else if (!r.pass) failures++;

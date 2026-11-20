@@ -153,3 +153,36 @@ export async function startYoutubeLogin() {
 export function isYoutubeBlock(message) {
   return /sign in to confirm|requires login|not a bot|login required|LOGIN_REQUIRED/i.test(String(message ?? ''));
 }
+
+/* ------------------------------ yt-dlp backend ------------------------------ */
+
+const backendFile = () => join(config.dataDir, 'youtube-backend');
+export const cookiesFile = () => join(config.dataDir, 'youtube-cookies.txt');
+
+/** "plugin" (Lavalink's YouTube plugin) or "ytdlp". A choice made in Discord wins over YOUTUBE_BACKEND. */
+export function youtubeBackend() {
+  try {
+    const chosen = readFileSync(backendFile(), 'utf8').trim();
+    if (chosen === 'ytdlp' || chosen === 'plugin') return chosen;
+  } catch {
+    /* not chosen in Discord */
+  }
+  return process.env.YOUTUBE_BACKEND === 'ytdlp' ? 'ytdlp' : 'plugin';
+}
+
+export function setYoutubeBackend(backend) {
+  writeFileSync(backendFile(), `${backend}\n`);
+}
+
+export function hasCookies() {
+  try {
+    return readFileSync(cookiesFile(), 'utf8').includes('youtube.com');
+  } catch {
+    return false;
+  }
+}
+
+/** yt-dlp handles plain YouTube searches only; YouTube Music search needs the plugin. */
+export function resolveSearchSource(source) {
+  return youtubeBackend() === 'ytdlp' && source === 'ytmsearch' ? 'ytsearch' : source;
+}

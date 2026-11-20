@@ -5,6 +5,7 @@ import { config } from './config.js';
 import { getSettings, updateSettings } from './db.js';
 import { log } from './logger.js';
 import { clearVoiceStatus } from './status.js';
+import { resolveSearchSource, youtubeBackend } from './youtube.js';
 import { escapeMd, formatDuration, isUrl, trackDuration, truncate } from './util/format.js';
 
 /** An error whose message is safe and friendly to show to the user. */
@@ -172,6 +173,8 @@ export async function requestSongs({ guild, member, query, next = false, textCha
 
   let source = settings.searchSource;
   if (source === 'spsearch' && !config.spotifyEnabled) source = 'ytmsearch';
+  source = resolveSearchSource(source);
+  const fallbackSource = resolveSearchSource('ytmsearch');
 
   let res;
   try {
@@ -182,9 +185,9 @@ export async function requestSongs({ guild, member, query, next = false, textCha
   }
 
   // If a non-default search source fails (e.g. SoundCloud is down), try YouTube Music instead.
-  if (!link && source !== 'ytmsearch' && (res.loadType === 'error' || res.loadType === 'empty' || !res.tracks?.length)) {
-    log.info(`[${guild.id}] ${source} search failed (${res.exception?.message ?? res.loadType}), falling back to ytmsearch`);
-    res = await player.search({ query: text, source: 'ytmsearch' }, requester).catch(() => res);
+  if (!link && source !== fallbackSource && (res.loadType === 'error' || res.loadType === 'empty' || !res.tracks?.length)) {
+    log.info(`[${guild.id}] ${source} search failed (${res.exception?.message ?? res.loadType}), falling back to ${fallbackSource}`);
+    res = await player.search({ query: text, source: fallbackSource }, requester).catch(() => res);
   }
 
   if (res.loadType === 'error') {
@@ -548,7 +551,7 @@ export function setAutoplay(guildId, enabled) {
  * YouTube Music, which returns the official audio upload, and use it if the length matches.
  */
 async function officialAudioFor(player, track, usable) {
-  if (track.info.sourceName === 'youtubemusic') return null;
+  if (track.info.sourceName === 'youtubemusic' || youtubeBackend() === 'ytdlp') return null;
   try {
     const res = await player.search(
       { query: `${track.info.title} ${track.info.author}`, source: 'ytmsearch' },
@@ -587,12 +590,13 @@ export async function autoplayNext(player, lastTrack) {
 
   const attempts = [];
   const { sourceName, identifier, author } = lastTrack.info;
-  if ((sourceName === 'youtube' || sourceName === 'youtubemusic') && identifier) {
+  if ((sourceName === 'youtube' || sourceName === 'youtubemusic' || sourceName === 'ytdlp') && identifier) {
     // YouTube's own "mix" for this video.
     attempts.push({ query: `https://www.youtube.com/watch?v=${identifier}&list=RD${identifier}` });
   }
-  if (author) attempts.push({ query: author, source: 'ytmsearch' });
-  attempts.push({ query: `${lastTrack.info.title} ${author ?? ''}`.trim(), source: 'ytmsearch' });
+  const musicSearch = resolveSearchSource('ytmsearch');
+  if (author) attempts.push({ query: author, source: musicSearch });
+  attempts.push({ query: `${lastTrack.info.title} ${author ?? ''}`.trim(), source: musicSearch });
 
   for (const q of attempts) {
     try {
