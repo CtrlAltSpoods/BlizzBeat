@@ -152,7 +152,12 @@ for _ in range(45):
 av.append('<g transform="translate(256 256) scale(1.75) translate(-205 -190)">')
 av.append('<circle cx="205" cy="190" r="118" fill="none" stroke="#7fd6ff" stroke-width="4" opacity="0.55"/>')
 av.append(f'<g filter="url(#flakeGlow)">{snowflake(205, 190, 92, "url(#ice)")}</g>')
-av.append('<path d="M197 176 L220 190 L197 204 Z" fill="#0b2446"/>')
+# Eighth note in the centre of the snowflake.
+av.append('<g fill="#0b2446">'
+          '<ellipse cx="200" cy="199.5" rx="7.6" ry="5.7" transform="rotate(-22 200 199.5)"/>'
+          '<rect x="204.6" y="172" width="3.6" height="28" rx="1.2"/>'
+          '<path d="M206.4 172 C212 175.5 219.5 179 217.5 191.5 C216.5 185 212.5 182.5 206.4 181.5 Z"/>'
+          '</g>')
 av.append('</g></svg>')
 Path(__file__).resolve().parent.parent.joinpath('avatar.svg').write_text('\n'.join(av))
 print('wrote avatar.svg')

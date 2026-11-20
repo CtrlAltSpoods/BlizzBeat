@@ -149,6 +149,11 @@ Blizzbeat plays YouTube's Opus audio (about 130–160 kbps) straight through to 
 - the volume is **100%** (the default), and
 - no effect is selected.
 
+Blizzbeat also tries to get you the best recording:
+- **YouTube's best stream.** The YouTube plugin picks the best audio format YouTube offers: Opus, without dynamic-range compression, at the highest bitrate.
+- **Official audio over music videos.** Typed searches use YouTube Music by default, Spotify links are matched on YouTube Music first, and autoplay swaps music videos for their official audio uploads when the length matches. That means no video intros or outros, and the studio master.
+- **A 10-second audio buffer**, so short network hiccups don't cause stutters.
+
 At any other volume, or with an effect on, Lavalink has to decode and re-encode the audio, which loses some quality. The player shows **🎧 original** next to the volume when you're getting the untouched stream. To make it quieter without losing quality, use Discord's own slider: right-click Blizzbeat → **User Volume**.
 
 ## Staying up to date

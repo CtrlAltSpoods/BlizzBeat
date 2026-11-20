@@ -543,6 +543,28 @@ export function setAutoplay(guildId, enabled) {
     : '📻 Autoplay off.';
 }
 
+/**
+ * YouTube mixes are mostly music videos (intros, skits, outros). Look for the same song on
+ * YouTube Music, which returns the official audio upload, and use it if the length matches.
+ */
+async function officialAudioFor(player, track, usable) {
+  if (track.info.sourceName === 'youtubemusic') return null;
+  try {
+    const res = await player.search(
+      { query: `${track.info.title} ${track.info.author}`, source: 'ytmsearch' },
+      AUTOPLAY_REQUESTER,
+    );
+    const target = track.info.duration;
+    return (
+      (res?.tracks ?? [])
+        .slice(0, 5)
+        .find((t) => usable(t) && Math.abs(t.info.duration - target) <= Math.max(20_000, target * 0.12)) ?? null
+    );
+  } catch {
+    return null;
+  }
+}
+
 /** lavalink-client calls this when the queue runs dry. Adds one related song if autoplay is on. */
 export async function autoplayNext(player, lastTrack) {
   const settings = getSettings(player.guildId);
@@ -577,7 +599,8 @@ export async function autoplayNext(player, lastTrack) {
       const res = await player.search(q, AUTOPLAY_REQUESTER);
       const pool = (res?.tracks ?? []).filter(usable).slice(0, 8);
       if (!pool.length) continue;
-      const pick = pool[Math.floor(Math.random() * pool.length)];
+      let pick = pool[Math.floor(Math.random() * pool.length)];
+      pick = (await officialAudioFor(player, pick, usable)) ?? pick;
       await player.queue.add(pick);
       log.info(`[${player.guildId}] autoplay picked: ${pick.info.title}`);
       return;

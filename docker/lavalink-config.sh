@@ -50,7 +50,7 @@ lavalink:
       http: false
       local: false
     bufferDurationMs: 400
-    frameBufferDurationMs: 5000
+    frameBufferDurationMs: 10000 # 10s of decoded audio buffered: rides out network hiccups
     opusEncodingQuality: 10
     resamplingQuality: HIGH # used for non-48kHz sources (SoundCloud, Bandcamp) and speed/pitch effects
     trackStuckThresholdMs: 10000
@@ -107,7 +107,10 @@ fi
 
 cat <<YAML
   lavasrc:
+    # Spotify tracks are matched to YouTube Music first (official audio uploads, not music videos).
     providers:
+      - 'ytmsearch:"%ISRC%"'
+      - 'ytmsearch:%QUERY%'
       - 'ytsearch:"%ISRC%"'
       - 'ytsearch:%QUERY%'
     sources:
