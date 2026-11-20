@@ -1,0 +1,43 @@
+name: Smoke test
+
+# Builds the image and exercises the real bot code against a real Lavalink
+# (YouTube/SoundCloud search + stream loading, slash command handling, player embed).
+# Discord itself is faked. Doesn't block publishing; it's a health report.
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - '**.md'
+      - 'assets/**'
+  workflow_dispatch:
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          load: true
+          tags: blizzbeat:smoke
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Bot + Lavalink smoke test
+        run: docker run --rm -v "$PWD/scripts:/app/scripts:ro" --entrypoint /app/scripts/smoke.sh blizzbeat:smoke
+
+      - name: Full container startup (fake token, Unraid PUID/PGID)
+        if: always()
+        run: |
+          docker run -d --name bb -e DISCORD_TOKEN=invalid.token.value -e PUID=99 -e PGID=100 blizzbeat:smoke
+          for _ in $(seq 1 90); do docker logs bb 2>&1 | grep -q "Starting Blizzbeat" && break; sleep 2; done
+          sleep 15
+          echo "-------- container log --------"
+          docker logs bb 2>&1 | grep -vE "^\s+at |DEBUG" | tail -60
+          docker logs bb 2>&1 | grep -q "Lavalink is up. Starting Blizzbeat"
+          docker logs bb 2>&1 | grep -qiE "TokenInvalid|invalid token|Login failed"
