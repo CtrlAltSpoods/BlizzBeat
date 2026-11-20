@@ -61,26 +61,37 @@ export function registerLavalinkEvents() {
 
   const lastBlockHint = new Map();
   lavalink.on('trackError', (player, track, payload) => {
-    const reason = payload?.exception?.message ?? payload?.message ?? 'unknown error';
-    const cause = payload?.exception?.cause ?? '';
-    log.warn(`[${player.guildId}] track error: ${track?.info?.title} :: ${reason} ${cause}`);
+    const reason = String(payload?.exception?.message ?? payload?.message ?? 'unknown error');
+    const cause = String(payload?.exception?.cause ?? '');
+    log.warn(`[${player.guildId}] track error: ${track?.info?.title} :: ${reason.replace(/\n+/g, ' | ')} ${cause}`);
     const title = escapeMd(truncate(track?.info?.title ?? 'that song', 80));
+
+    // youtube-source lists why each client failed: "Client [TVHTML5] failed: This video requires login."
+    const perClient = [...reason.matchAll(/Client \[([A-Z_0-9]+)\] failed: ([^\n]+)/g)].map(
+      ([, client, why]) => `${client}: ${truncate(why.trim(), 60)}`,
+    );
+    const details = perClient.length ? `\n-# ${perClient.slice(0, 5).join(' · ')}` : '';
+
     if (isYoutubeBlock(`${reason} ${cause}`)) {
-      log.warn('YouTube is blocking playback. Fix: run /config youtube -> Sign in (with a spare Google account).');
       const last = lastBlockHint.get(player.guildId) ?? 0;
-      if (Date.now() - last > 10 * 60_000) {
-        lastBlockHint.set(player.guildId, Date.now());
-        flash(
-          player.guildId,
-          `⚠️ YouTube blocked **${title}** ("sign in to confirm you're not a bot").\n` +
-            `An admin can fix this once with ${commandMention('config', 'youtube')} → **Sign in** (use a spare Google account).`,
-          60_000,
-        );
-        return;
-      }
+      const longHint = Date.now() - last > 10 * 60_000;
+      if (longHint) lastBlockHint.set(player.guildId, Date.now());
+      flash(
+        player.guildId,
+        `⚠️ YouTube blocked **${title}** (it wants a signed-in account).${details}\n` +
+          (longHint
+            ? `An admin can fix this once with ${commandMention('config', 'youtube')} → **Sign in** (use a spare Google account). Check it with **Status**.`
+            : `Fix: ${commandMention('config', 'youtube')} → **Sign in**.`),
+        longHint ? 60_000 : 15_000,
+      );
+      return;
     }
-    flash(player.guildId, `⚠️ Couldn't play **${title}**: ${truncate(reason.split('\n')[0], 150)}`, 10_000);
+    const cipherHint = /sig(nature)? function|cipher|decipher|n function|throttl/i.test(reason)
+      ? '\n-# YouTube changed its player code. Set YOUTUBE_PLUGIN_VERSION to the newest youtube-source release and restart.'
+      : '';
+    flash(player.guildId, `⚠️ Couldn't play **${title}**: ${truncate(reason.split('\n')[0], 150)}${details}${cipherHint}`, 20_000);
   });
+
   lavalink.on('trackStuck', (player, track) => {
     log.warn(`[${player.guildId}] track stuck: ${track?.info?.title}`);
     flash(player.guildId, `⚠️ **${escapeMd(truncate(track?.info?.title ?? 'That song', 80))}** got stuck, skipping.`, 8000);
