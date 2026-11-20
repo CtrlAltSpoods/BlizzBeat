@@ -222,9 +222,41 @@ try {
   bad('player embed renders', err.stack);
 }
 
+// --- playback probe: can Lavalink actually open the audio stream for several songs?
+const probes = [
+  ['youtube: rick astley', 'https://www.youtube.com/watch?v=dQw4w9WgXcQ'],
+  ['youtube: queen', 'ytsearch:queen bohemian rhapsody'],
+  ['youtube music: daft punk', 'ytmsearch:daft punk get lucky'],
+  ['soundcloud url', 'https://soundcloud.com/forss/flickermood'],
+];
+let probeGuild = 700;
+for (const [label, query] of probes) {
+  const gid = String(probeGuild++);
+  try {
+    const p = lavalink.createPlayer({ guildId: gid, voiceChannelId: '301', volume: 50 });
+    const res = await withTimeout(p.search({ query }, { id: '1', displayName: 'probe' }), 20_000, label);
+    const track = res.tracks?.[0];
+    if (!track) {
+      bad(`stream: ${label}`, `no track (${res.loadType} ${res.exception?.message ?? ''})`);
+      continue;
+    }
+    const outcome = new Promise((resolve) => {
+      const onErr = (pl, t, payload) => pl.guildId === gid && resolve(`error: ${(payload?.exception?.message ?? '').split('\n').slice(0, 4).join(' | ')}`);
+      lavalink.on('trackError', onErr);
+      setTimeout(() => resolve('ok'), 10_000);
+    });
+    await p.play({ clientTrack: track });
+    const r = await outcome;
+    (r === 'ok' ? ok : bad)(`stream: ${label}`, r === 'ok' ? `"${track.info.title}" opened without errors` : r);
+    await p.destroy('probe');
+  } catch (err) {
+    bad(`stream: ${label}`, err.message);
+  }
+}
+
 // --- report
 let failures = 0;
-console.log('\n================ BLIZZBEAT SMOKE TEST ================');
+console.log(`\n================ BLIZZBEAT SMOKE TEST [${process.env.SMOKE_LABEL ?? 'default'}] ================`);
 for (const r of results) {
   if (!r.pass) failures++;
   console.log(`${r.pass ? 'PASS' : 'FAIL'}  ${r.name}${r.detail ? `\n      ${String(r.detail).split('\n').slice(0, 6).join('\n      ')}` : ''}`);
