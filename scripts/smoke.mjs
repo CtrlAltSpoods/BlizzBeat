@@ -254,7 +254,12 @@ for (const [label, query] of probes) {
     const res = await withTimeout(p.search({ query }, { id: '1', displayName: 'probe' }), 20_000, label);
     const track = res.tracks?.[0];
     if (!track) {
-      bad(`stream: ${label}`, `no track (${res.loadType} ${res.exception?.message ?? ''})`);
+      bad(
+        `stream: ${label}`,
+        res.loadType
+          ? `no track (${res.loadType} ${res.exception?.message ?? ''})`
+          : 'Lavalink returned an internal error (known upstream LavaSrc yt-dlp parsing bug; the bot falls back to its own yt-dlp search)',
+      );
       continue;
     }
     const outcome = new Promise((resolve) => {
