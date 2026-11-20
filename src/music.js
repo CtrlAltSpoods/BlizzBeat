@@ -6,6 +6,7 @@ import { getSettings, updateSettings } from './db.js';
 import { log } from './logger.js';
 import { clearVoiceStatus } from './status.js';
 import { assertPublicUrl, isNativeLink, mediaUrl, resolveLink, searchYoutube } from './media.js';
+import { saveAttachment, UPLOAD_PREFIX, UploadError, uploadNameOf } from './uploads.js';
 import { resolveSearchSource, youtubeBackend } from './youtube.js';
 import { displayUri, escapeMd, formatDuration, isUrl, trackDuration, trackLength, truncate } from './util/format.js';
 
@@ -218,15 +219,19 @@ async function resolveWithYtdlp(url, settings, requester) {
  * Handles a song request from /play or from typing in the Blizzbeat channel.
  * Returns a short, user-facing summary.
  */
-export async function requestSongs({ guild, member, query, next = false, textChannelId }) {
-  const settings = getSettings(guild.id);
-  const text = String(query ?? '').trim();
-  if (!text) throw new UserError('Tell me what to play: a song name or a link.');
+function assertCanRequest(settings, member) {
   if (settings.blockedUsers.includes(member.id)) throw new UserError("You're blocked from requesting songs on this server.");
   if (settings.requestRoleId && !isAdmin(member) && !member.roles.cache.has(settings.requestRoleId)) {
     throw new UserError(`Only members with <@&${settings.requestRoleId}> can request songs.`);
   }
   checkCooldown(member, 'request');
+}
+
+export async function requestSongs({ guild, member, query, next = false, textChannelId }) {
+  const settings = getSettings(guild.id);
+  const text = String(query ?? '').trim();
+  if (!text) throw new UserError('Tell me what to play: a song name or a link.');
+  assertCanRequest(settings, member);
 
   const link = isUrl(text);
   if (link && SPOTIFY_LINK.test(text) && !config.spotifyEnabled) {
@@ -308,8 +313,22 @@ export async function requestSongs({ guild, member, query, next = false, textCha
 
   const isPlaylist = res.loadType === 'playlist';
   if (isPlaylist && !settings.allowPlaylists) throw new UserError('Playlists are turned off on this server.');
-  let tracks = isPlaylist ? [...res.tracks] : [res.tracks[0]];
+  const notes = [];
+  if (mirroredFrom) notes.push("SoundCloud can't stream right now, so this is the same song from YouTube");
+  return enqueue({
+    guild,
+    member,
+    player,
+    settings,
+    next,
+    tracks: isPlaylist ? [...res.tracks] : [res.tracks[0]],
+    groupName: isPlaylist ? res.playlist?.name ?? 'playlist' : null,
+    notes,
+  });
+}
 
+/** Applies the server's limits, adds the tracks and returns the user-facing summary. */
+async function enqueue({ guild, member, player, settings, next, tracks, groupName, notes = [] }) {
   let tooLong = 0;
   if (settings.maxSongMinutes > 0) {
     const max = settings.maxSongMinutes * 60_000;
@@ -341,21 +360,69 @@ export async function requestSongs({ guild, member, query, next = false, textCha
   touchCooldown(member, 'request');
   evaluateIdle(guild.id);
 
-  const notes = [];
   if (tooLong) notes.push(`${tooLong} skipped for being too long`);
   if (dropped) notes.push(`${dropped} skipped because of queue limits`);
-  if (mirroredFrom) notes.push("SoundCloud can't stream right now, so this is the same song from YouTube");
   const noteText = notes.length ? `\n-# ${notes.join(' · ')}` : '';
 
-  if (isPlaylist) {
+  if (groupName && tracks.length > 1) {
     const total = tracks.reduce((sum, t) => sum + trackLength(t), 0);
-    const name = escapeMd(truncate(res.playlist?.name ?? 'playlist', 80));
+    const name = escapeMd(truncate(groupName, 80));
     return `📃 Added **${tracks.length}** songs from **${name}** (${formatDuration(total)})${noteText}`;
   }
   const track = tracks[0];
   if (startNow) return `▶️ Now playing ${trackLink(track)} \`${trackDuration(track)}\`${noteText}`;
   const position = next ? 1 : player.queue.tracks.length;
   return `🎶 Queued ${trackLink(track)} \`${trackDuration(track)}\` at **#${position}**${noteText}`;
+}
+
+/** An uploaded file as a queueable track (played from DATA_DIR/uploads through the media server). */
+function uploadTrack(file, requester) {
+  const page = `${UPLOAD_PREFIX}${file.name}`;
+  return lavalink.utils.buildUnresolvedTrack(
+    {
+      title: file.title,
+      author: file.author,
+      duration: file.durationMs,
+      uri: mediaUrl(page, file.durationMs),
+      artworkUrl: null,
+      sourceName: 'upload',
+      identifier: page,
+      isStream: false,
+      isSeekable: true,
+    },
+    requester,
+  );
+}
+
+/**
+ * Audio files dropped into the Blizzbeat channel. Each file is copied before the message is deleted.
+ * Returns a short, user-facing summary; files that couldn't be used are listed underneath.
+ */
+export async function requestUploads({ guild, member, attachments, textChannelId }) {
+  const settings = getSettings(guild.id);
+  if (!settings.uploadsEnabled) throw new UserError('Playing uploaded files is turned off on this server.');
+  assertCanRequest(settings, member);
+  if (!member.voice?.channel) throw new UserError('Join a voice channel first, then drop the file again.');
+  if (!lavalink.useable) {
+    throw new UserError("The music engine (Lavalink) isn't connected yet. If this lasts more than a couple of minutes, check the container logs.");
+  }
+
+  const requester = toRequester(member);
+  const maxBytes = settings.uploadMaxMb * 1024 * 1024;
+  const tracks = [];
+  const problems = [];
+  for (const attachment of attachments) {
+    try {
+      tracks.push(uploadTrack(await saveAttachment(attachment, { maxBytes }), requester));
+    } catch (err) {
+      if (!(err instanceof UploadError)) log.warn(`[${guild.id}] couldn't save upload ${attachment.name}:`, err?.message ?? err);
+      problems.push(err instanceof UploadError ? err.message : `I couldn't save **${escapeMd(truncate(attachment.name, 60))}**.`);
+    }
+  }
+  if (!tracks.length) throw new UserError(problems.join('\n') || "That file doesn't have any audio I can play.");
+
+  const player = await playerFor(guild, member, textChannelId);
+  return enqueue({ guild, member, player, settings, next: false, tracks, groupName: 'your files', notes: problems });
 }
 
 /* ----------------------------- Controls ----------------------------- */
@@ -699,7 +766,9 @@ export async function autoplayNext(player, lastTrack) {
     t.info.duration <= maxMs;
 
   const attempts = [];
-  const { sourceName, identifier, author } = lastTrack.info;
+  const { sourceName, identifier } = lastTrack.info;
+  // Uploaded files without an artist tag show "Uploaded file" as the artist; don't search for that.
+  const author = uploadNameOf(lastTrack) && lastTrack.info.author === 'Uploaded file' ? null : lastTrack.info.author;
   if ((sourceName === 'youtube' || sourceName === 'youtubemusic' || sourceName === 'ytdlp') && identifier) {
     // YouTube's own "mix" for this video.
     attempts.push({ query: `https://www.youtube.com/watch?v=${identifier}&list=RD${identifier}` });

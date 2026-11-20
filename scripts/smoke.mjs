@@ -306,6 +306,119 @@ for (const [label, query] of probes) {
   }
 }
 
+// --- audio files dropped into the player channel
+{
+  const { execFileSync } = await import('node:child_process');
+  const { mkdirSync, readFileSync, statSync } = await import('node:fs');
+  const http = await import('node:http');
+  const media = await import('../src/media.js');
+  const uploads = await import('../src/uploads.js');
+  media.startMediaServer();
+
+  // Fake Discord CDN serving generated test files (20 s of tone each).
+  const dir = '/tmp/blizzbeat-smoke-files';
+  mkdirSync(dir, { recursive: true });
+  const make = (name, ...args) =>
+    execFileSync('ffmpeg', ['-nostdin', '-loglevel', 'error', '-y', '-f', 'lavfi', '-i', 'sine=frequency=440:duration=20', '-ac', '2', ...args, `${dir}/${name}`]);
+  const formats = [
+    ['song.mp3', ['-metadata', 'title=Smoke MP3', '-metadata', 'artist=Smoke Artist']],
+    ['song.flac', []],
+    ['song.wav', []],
+    ['song.ogg', ['-c:a', 'libopus']],
+    ['song.m4a', ['-c:a', 'aac']],
+    ['song.aiff', []],
+    ['clip.webm', ['-c:a', 'libopus']],
+  ];
+  for (const [name, args] of formats) make(name, ...args);
+  const cdn = http.createServer((req, res) => {
+    try {
+      res.end(readFileSync(dir + decodeURIComponent(req.url)));
+    } catch {
+      res.writeHead(404).end();
+    }
+  });
+  await new Promise((r) => cdn.listen(23999, '127.0.0.1', r));
+  const att = (name) => ({ id: name, name, url: `http://127.0.0.1:23999/${name}`, size: statSync(`${dir}/${name}`).size, contentType: '' });
+
+  // Each format: saved, then Lavalink loads it as a normal seekable track with the right length.
+  let g = 900;
+  for (const [name] of formats) {
+    const label = `upload: ${name}`;
+    const gid = String(g++);
+    try {
+      const f = await withTimeout(uploads.saveAttachment(att(name), { maxBytes: 50 * 1048576 }), 60_000, label);
+      const p = lavalink.createPlayer({ guildId: gid, voiceChannelId: '303', volume: 100 });
+      const res = await withTimeout(p.search({ query: media.mediaUrl(`upload:${f.name}`, f.durationMs) }, { id: '1', displayName: 'probe' }), 30_000, `${label} load`);
+      const t = res.tracks?.[0];
+      if (!t) {
+        bad(label, `Lavalink couldn't load it (${res.loadType} ${res.exception?.message ?? ''})`);
+        continue;
+      }
+      const errored = new Promise((resolve) => {
+        lavalink.on('trackError', (pl, tr, payload) => pl.guildId === gid && resolve(`error: ${payload?.exception?.message} ${payload?.exception?.cause ?? ''}`));
+        setTimeout(() => resolve(null), 6000);
+      });
+      await p.play({ clientTrack: t });
+      await sleep(1500);
+      let seekNote = 'not seekable';
+      if (t.info.isSeekable) {
+        await p.seek(10_000).catch((e) => (seekNote = `seek failed: ${e.message}`));
+        if (seekNote === 'not seekable') seekNote = 'seek ok';
+      }
+      const err = await errored;
+      const lenOk = Math.abs(t.info.duration - 20_000) < 1500 && !t.info.isStream;
+      (err || !lenOk ? bad : ok)(
+        label,
+        err ?? `${f.name.split('.')[1]} · "${f.title}" by ${f.author} · ${Math.round(t.info.duration / 1000)}s · ${seekNote}${lenOk ? '' : ' · WRONG LENGTH'}`,
+      );
+      await p.destroy('probe');
+    } catch (err) {
+      bad(label, err.message);
+    }
+  }
+
+  // The real flow: a message with a file arrives in the player channel.
+  try {
+    const p = lavalink.getPlayer('200');
+    const before = p?.queue.tracks.length ?? 0;
+    const msg = {
+      id: 'drop1',
+      guildId: '200',
+      channelId: '500',
+      guild,
+      member,
+      author: member.user,
+      webhookId: null,
+      system: false,
+      content: 'check this out',
+      attachments: new Map([['a', { ...att('song.mp3'), contentType: 'audio/mpeg' }]]),
+      inGuild: () => true,
+      async react() {},
+      async delete() {
+        this.deleted = true;
+      },
+    };
+    client.emit('messageCreate', msg);
+    for (let i = 0; i < 40 && !msg.deleted; i++) await sleep(250);
+    await sleep(1500);
+    const pl = lavalink.getPlayer('200');
+    const all = [pl?.queue.current, ...(pl?.queue.tracks ?? [])].filter(Boolean);
+    const queued = all.find((t) => uploads.uploadNameOf(t));
+    const flashText = posted.map((m) => m.payload?.content ?? '').filter(Boolean).at(-1) ?? '';
+    (msg.deleted && queued ? ok : bad)(
+      'drop a file in the channel',
+      `message deleted=${Boolean(msg.deleted)} queued="${queued?.info?.title ?? '-'}" (${before} → ${pl?.queue.tracks.length ?? 0}) reply="${flashText.slice(0, 100)}"`,
+    );
+    const imgMsg = { ...msg, id: 'drop2', deleted: false, content: '', attachments: new Map([['b', { name: 'cat.png', contentType: 'image/png', size: 10, url: 'x' }]]) };
+    client.emit('messageCreate', imgMsg);
+    await sleep(500);
+    (imgMsg.deleted ? ok : bad)('non-audio file is removed', `deleted=${Boolean(imgMsg.deleted)}`);
+  } catch (err) {
+    bad('drop a file in the channel', err.stack);
+  }
+  cdn.close();
+}
+
 // --- in-container updater reached GitHub
 try {
   const { readState, effectiveVersions } = await import('../src/updater.js');

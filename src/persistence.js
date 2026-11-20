@@ -5,6 +5,7 @@ import { config } from './config.js';
 import { flash, requestUpdate } from './controller.js';
 import { deleteSession, getSettings, loadSessions, saveSession } from './db.js';
 import { log } from './logger.js';
+import { pruneUploads, uploadNameOf } from './uploads.js';
 import { applyEffect, currentEffect, evaluateIdle, humansIn } from './music.js';
 
 let shuttingDown = false;
@@ -15,14 +16,54 @@ export function markShuttingDown() {
 }
 
 function plainTrack(t) {
-  if (!t?.encoded || !t?.info) return null;
+  if (!t?.info) return null;
+  // Not-yet-resolved tracks (yt-dlp links, uploaded files) are kept by their URI and resolved again on restore.
+  if (!t.encoded && !t.info.uri) return null;
   return {
-    encoded: t.encoded,
+    encoded: t.encoded ?? null,
     info: t.info,
     pluginInfo: t.pluginInfo ?? {},
     userData: t.userData ?? {},
     requester: t.requester ?? null,
   };
+}
+
+/** Saved track -> something the queue accepts (unresolved tracks are rebuilt from their info). */
+function restoredTrack(t) {
+  if (t.encoded) return t;
+  const info = { ...t.info };
+  delete info.resolve;
+  return lavalink.utils.buildUnresolvedTrack({ info }, t.requester);
+}
+
+/** Uploaded files still referenced by a player or a saved session; everything else in DATA_DIR/uploads can go. */
+export function sweepUploads() {
+  const inUse = new Set();
+  const add = (t) => {
+    const name = uploadNameOf(t);
+    if (name) inUse.add(name);
+  };
+  for (const player of lavalink.players.values()) {
+    add(player.queue.current);
+    player.queue.tracks.forEach(add);
+    player.queue.previous.forEach(add);
+  }
+  for (const { data } of loadSessions()) {
+    add(data.current);
+    (data.tracks ?? []).forEach(add);
+    (data.previous ?? []).forEach(add);
+  }
+  return pruneUploads(inUse);
+}
+
+export function startUploadSweeper() {
+  setInterval(() => {
+    try {
+      sweepUploads();
+    } catch (err) {
+      log.warn('Upload cleanup failed:', err?.message ?? err);
+    }
+  }, 10 * 60_000).unref();
 }
 
 /** Writes a snapshot of the guild's player right now. */
@@ -131,11 +172,15 @@ export async function restoreSessions() {
       });
       await player.connect();
 
-      if (data.tracks?.length) await player.queue.add(data.tracks);
-      if (data.previous?.length) player.queue.previous.push(...data.previous);
+      if (data.tracks?.length) await player.queue.add(data.tracks.map(restoredTrack));
+      if (data.previous?.length) player.queue.previous.push(...data.previous.map(restoredTrack));
       if (data.repeatMode && data.repeatMode !== 'off') await player.setRepeatMode(data.repeatMode);
 
-      if (data.current) {
+      if (data.current && !data.current.encoded) {
+        // The song that was playing hadn't been resolved yet: start it from the top.
+        await player.queue.add(restoredTrack(data.current), 0);
+        await player.play({ paused: Boolean(data.paused) });
+      } else if (data.current) {
         await player.play({
           clientTrack: data.current,
           position: data.position || undefined,

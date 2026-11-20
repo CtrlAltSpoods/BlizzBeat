@@ -228,7 +228,7 @@ export async function runUserCommand(interaction, flags) {
 function helpEmbed(guildId) {
   const settings = getSettings(guildId);
   const where = settings.channelId
-    ? `Type a song name or link in <#${settings.channelId}> and it gets queued. The player there updates live.`
+    ? `Type a song name or link in <#${settings.channelId}> and it gets queued${settings.uploadsEnabled ? ', or drop an audio file there to play it' : ''}. The player there updates live.`
     : `An admin can create a Blizzbeat channel with ${commandMention('setup', 'create')}.`;
   return new EmbedBuilder()
     .setColor(settings.embedColor)

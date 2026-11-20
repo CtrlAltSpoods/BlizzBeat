@@ -136,6 +136,15 @@ export const adminCommands = [
       )
       .addSubcommand((s) =>
         s
+          .setName('uploads')
+          .setDescription('Let people drop audio files in the player channel to play them')
+          .addBooleanOption((o) => o.setName('enabled').setDescription('Allow uploaded files').setRequired(true))
+          .addIntegerOption((o) =>
+            o.setName('max-mb').setDescription('Largest file in MB (default 100; Discord limits uploads too)').setMinValue(1).setMaxValue(500),
+          ),
+      )
+      .addSubcommand((s) =>
+        s
           .setName('auto-leave')
           .setDescription('Minutes to wait before leaving when idle or alone (0 = right away)')
           .addIntegerOption((o) => o.setName('minutes').setDescription('0-1440').setRequired(true).setMinValue(0).setMaxValue(1440)),
@@ -265,7 +274,7 @@ async function runSetup(interaction) {
     channel = await guild.channels.create({
       name: 'blizzbeat',
       type: ChannelType.GuildText,
-      topic: '🎵 Type a song name or link here to play it. Use the buttons on the player to control the music.',
+      topic: '🎵 Type a song name or link here (or drop an audio file) to play it. Use the buttons on the player to control the music.',
       parent: interaction.channel?.parentId ?? undefined,
       permissionOverwrites: [
         {
@@ -277,6 +286,7 @@ async function runSetup(interaction) {
             PermissionFlagsBits.AttachFiles,
             PermissionFlagsBits.ReadMessageHistory,
             PermissionFlagsBits.ManageMessages,
+            PermissionFlagsBits.AddReactions,
           ],
         },
       ],
@@ -317,6 +327,7 @@ function settingsEmbed(guildId) {
       { name: 'Per-user limit', value: s.maxPerUser ? String(s.maxPerUser) : 'None', inline: true },
       { name: 'Max song length', value: s.maxSongMinutes ? `${s.maxSongMinutes} min` : 'None', inline: true },
       { name: 'Playlists', value: s.allowPlaylists ? 'Allowed' : 'Blocked', inline: true },
+      { name: 'Uploaded files', value: s.uploadsEnabled ? `Allowed (up to ${s.uploadMaxMb} MB)` : 'Blocked', inline: true },
       { name: 'Auto-leave', value: s.stay247 ? 'Off (24/7)' : `${s.autoLeaveMinutes} min`, inline: true },
       { name: 'Banner', value: s.customBanner ? 'Custom' : 'Default', inline: true },
       { name: 'Autoplay', value: s.autoplay ? 'On' : 'Off', inline: true },
@@ -542,6 +553,15 @@ async function runConfig(interaction) {
       const on = options.getBoolean('enabled', true);
       updateSettings(gid, { allowPlaylists: on });
       reply = on ? '📃 Playlists and albums are allowed.' : '📃 Playlists and albums are blocked; only single songs can be added.';
+      break;
+    }
+    case 'uploads': {
+      const on = options.getBoolean('enabled', true);
+      const mb = options.getInteger('max-mb') ?? getSettings(gid).uploadMaxMb;
+      updateSettings(gid, { uploadsEnabled: on, uploadMaxMb: mb });
+      reply = on
+        ? `📎 Audio files dropped in the player channel will be played (up to **${mb} MB** each; Discord's own upload limit still applies).`
+        : '📎 Uploaded files are blocked; only song names and links can be requested.';
       break;
     }
     case 'auto-leave': {

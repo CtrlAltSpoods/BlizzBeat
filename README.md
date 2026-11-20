@@ -8,6 +8,7 @@ A self-hosted Discord music bot with a dedicated player channel, in the spirit o
 
 - **Player channel.** `/setup create` makes a `#blizzbeat` channel with a banner at the top and a single player message under it. The player message is **edited in place**, never re-posted. It shows the song, artwork, a progress bar, who requested it, volume, loop mode and the upcoming queue.
 - **Type to queue.** Anyone in a voice channel can type a song name or link in the Blizzbeat channel. The message is removed and the song is queued, so the channel stays clean.
+- **Drop a file to play it.** Drag an audio file (or a video, for its sound) into the Blizzbeat channel and it's queued like any other song. See [Playing your own files](#playing-your-own-files).
 - **Buttons** on the player: ⏮️ previous, ⏯️ pause/resume, ⏭️ skip, ⏹️ stop, 🔉/🔊 volume, 🔀 shuffle, 🔁 loop, 📻 autoplay. Under them is an **audio effects** menu.
 - **Autoplay.** When the queue runs out, Blizzbeat keeps going with related songs (YouTube's mix for the last song, then the same artist). Toggle it with 📻 or `/autoplay`.
 - **Audio effects:** bass boost, nightcore, slowed, 8D, karaoke, soft and pop EQ.
@@ -129,6 +130,7 @@ Commands used inside the Blizzbeat channel reply privately so the channel stays 
 | `/config user-limit` | Maximum queued songs per person |
 | `/config song-length` | Longest song allowed, in minutes |
 | `/config playlists` | Allow or block playlists and albums |
+| `/config uploads` | Allow or block audio files dropped in the player channel, and set the largest file size (default 100 MB) |
 | `/config auto-leave` | Minutes to wait before leaving when idle or alone |
 | `/config stay-247` | Stay in voice 24/7 |
 | `/config vote-skip enabled [percent]` | Listeners vote to skip other people's songs (default 50% of the channel). Admins, DJs, the requester and anyone alone with the bot skip instantly. |
@@ -165,6 +167,18 @@ YouTube, Spotify, Bandcamp, Twitch and Vimeo links play through Lavalink's own s
 3. Lavalink plays that from a small server inside the container. It only listens on 127.0.0.1 and only serves links the bot signed itself.
 
 For safety, links that point to private network addresses (your LAN, the container itself) are refused. Songs from these sites can't be seeked, and if yt-dlp can't read a SoundCloud link, Blizzbeat plays the same song from YouTube instead.
+
+## Playing your own files
+
+Join a voice channel and drop an audio file into `#blizzbeat` (up to 10 files in one message). Blizzbeat shows ⏳ while it copies the file, then removes the message and queues the song. Any text you type with the file is ignored.
+
+- **Formats:** MP3, FLAC, WAV, OGG/Opus, M4A/AAC, ALAC, AIFF, WMA and most others ffmpeg can read, plus the sound from video files (MP4, MKV, WebM, MOV and so on).
+- **Quality:** MP3, FLAC, 16-bit WAV, Ogg (Opus/Vorbis) and M4A (AAC) files are played exactly as uploaded. Audio from videos is copied out without re-encoding where possible. Other formats (ALAC, AIFF, 24-bit WAV and so on) are converted to FLAC, which loses nothing. Uploaded songs show their real length and can be seeked.
+- **Title:** taken from the file's tags (title and artist), or from the file name if it has none.
+- **Size:** Discord's own upload limit applies (10 MB per file without Nitro or a boosted server). Admins can set a lower or higher cap with `/config uploads`, up to 500 MB.
+- **Storage:** Discord deletes a file when its message is deleted, so Blizzbeat keeps a copy in `/data/uploads`. A copy is deleted once the song is no longer queued, playing or in the player's history, including after a restart. Nothing stays there long term.
+- The same rules as other requests apply: request role, blocklist, cooldown, song length, queue and per-user limits.
+- Needs the **Message Content** intent (the same switch that type-to-queue uses).
 
 ## Staying up to date
 
@@ -243,7 +257,9 @@ Docker container (tini as PID 1)
     ├── src/controller.js   banner + player message, edited in place with debounced, rate-limited updates
     ├── src/music.js        requests, limits, permissions, controls, auto-leave
     ├── src/commands/       slash command definitions and handlers
-    ├── src/events.js       Lavalink/Discord events and type-to-queue
+    ├── src/events.js       Lavalink/Discord events, type-to-queue and dropped files
+    ├── src/media.js        yt-dlp links and uploaded files, served to Lavalink on 127.0.0.1
+    ├── src/uploads.js      copies, checks and cleans up dropped audio files
     ├── src/persistence.js  saves player sessions and restores them on boot
     ├── src/status.js       "Listening to" presence and voice channel status
     └── src/db.js           settings + sessions (node:sqlite at /data/blizzbeat.sqlite)

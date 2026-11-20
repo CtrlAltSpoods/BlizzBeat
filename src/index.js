@@ -11,7 +11,7 @@ import { startDiagnostics } from './diagnostics.js';
 import { startMediaServer } from './media.js';
 import { log } from './logger.js';
 import { destroyPlayer } from './music.js';
-import { markShuttingDown, restoreSessions, saveAll, startAutosave } from './persistence.js';
+import { markShuttingDown, restoreSessions, saveAll, startAutosave, startUploadSweeper, sweepUploads } from './persistence.js';
 import { updatePresence } from './status.js';
 import { startDailyUpdates, verifyOnConnect } from './updater.js';
 import { restoreYoutubeLogin } from './youtube.js';
@@ -29,7 +29,19 @@ startMediaServer();
 lavalink.nodeManager.on('connect', (node) => {
   restoreYoutubeLogin().catch(() => null);
   verifyOnConnect(node).catch(() => null);
-  setTimeout(() => restoreSessions().catch((err) => log.error('Session restore failed:', err)), 1500);
+  setTimeout(
+    () =>
+      restoreSessions()
+        .catch((err) => log.error('Session restore failed:', err))
+        .finally(() => {
+          try {
+            sweepUploads();
+          } catch (err) {
+            log.warn('Upload cleanup failed:', err?.message ?? err);
+          }
+        }),
+    1500,
+  );
 });
 
 client.on(Events.InteractionCreate, (interaction) =>
@@ -78,6 +90,7 @@ client.once(Events.ClientReady, async (ready) => {
   startDailyUpdates(() => [...lavalink.players.values()].some((p) => p.queue.current));
   startProgressTicker();
   startAutosave();
+  startUploadSweeper();
   updatePresence();
   for (const { guildId } of allConfiguredGuilds()) {
     if (ready.guilds.cache.has(guildId)) requestUpdate(guildId);

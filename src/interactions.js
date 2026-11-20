@@ -19,6 +19,7 @@ export const INVITE_PERMISSIONS = new PermissionsBitField([
   PermissionFlagsBits.AttachFiles,
   PermissionFlagsBits.ReadMessageHistory,
   PermissionFlagsBits.ManageMessages,
+  PermissionFlagsBits.AddReactions,
   PermissionFlagsBits.ManageChannels,
   PermissionFlagsBits.Connect,
   PermissionFlagsBits.Speak,

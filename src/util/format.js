@@ -90,6 +90,33 @@ export function sourceLabel(sourceName) {
   return map[sourceName] ?? (sourceName ? sourceName[0].toUpperCase() + sourceName.slice(1) : 'Unknown');
 }
 
+const SITE_NAMES = {
+  'soundcloud.com': 'SoundCloud',
+  'mixcloud.com': 'Mixcloud',
+  'tiktok.com': 'TikTok',
+  'x.com': 'X',
+  'twitter.com': 'X',
+  'reddit.com': 'Reddit',
+  'archive.org': 'Internet Archive',
+  'youtube.com': 'YouTube',
+  'music.youtube.com': 'YouTube Music',
+};
+
+/** Where a track comes from, for display (uploaded files and yt-dlp sites included). */
+export function trackSourceLabel(track) {
+  const media = mediaInfo(track?.info?.uri);
+  if (media) {
+    if (media.page.startsWith('upload:')) return 'Uploaded file';
+    try {
+      const host = new URL(media.page).hostname.toLowerCase().replace(/^(www|m|on)\./, '');
+      return SITE_NAMES[host] ?? host;
+    } catch {
+      /* fall through */
+    }
+  }
+  return sourceLabel(track?.info?.sourceName);
+}
+
 export function parseHexColor(input) {
   const m = /^#?([0-9a-f]{6})$/i.exec(String(input ?? '').trim());
   return m ? `#${m[1].toUpperCase()}` : null;

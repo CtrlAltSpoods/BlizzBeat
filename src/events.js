@@ -5,10 +5,11 @@ import { config } from './config.js';
 import { flash, isControllerChannel, isControllerMessage, requestUpdate } from './controller.js';
 import { getSettings } from './db.js';
 import { log } from './logger.js';
-import { autoplayNext, checkVotes, clearVotes, evaluateIdle, forgetGuild, requestSongs, UserError } from './music.js';
+import { autoplayNext, checkVotes, clearVotes, evaluateIdle, forgetGuild, requestSongs, requestUploads, UserError } from './music.js';
 import { dropSession, scheduleSave } from './persistence.js';
 import { hasCookies, isYoutubeBlock, youtubeBackend } from './youtube.js';
 import { clearVoiceStatus, setVoiceStatus, updatePresence } from './status.js';
+import { looksLikeMedia } from './uploads.js';
 import { escapeMd, truncate } from './util/format.js';
 
 export function registerLavalinkEvents() {
@@ -134,18 +135,37 @@ export function registerDiscordEvents() {
     if (!message.inGuild() || !isControllerChannel(message.guildId, message.channelId)) return;
     if (message.author.id === client.user.id) return;
 
-    await message.delete().catch(() => null);
-    if (message.author.bot || message.webhookId || message.system) return;
-    if (!config.messageContent) return;
+    const isPerson = !(message.author.bot || message.webhookId || message.system);
+    // Dropped audio files: copy them before the message (and with it the attachment) is deleted.
+    const files = isPerson && config.messageContent ? [...message.attachments.values()].filter(looksLikeMedia) : [];
+    if (!files.length) await message.delete().catch(() => null);
+    if (!isPerson || !config.messageContent) return;
 
     const query = message.content?.trim();
-    if (!query) return;
+    if (!query && !files.length) {
+      if (message.attachments.size) flash(message.guildId, `<@${message.author.id}> ❌ Only audio and video files can be played here.`, 6000);
+      return;
+    }
 
     const member = message.member ?? (await message.guild.members.fetch(message.author.id).catch(() => null));
-    if (!member) return;
+    if (!member) {
+      if (files.length) await message.delete().catch(() => null);
+      return;
+    }
 
     try {
-      const result = await requestSongs({ guild: message.guild, member, query, textChannelId: message.channelId });
+      let result;
+      if (files.length) {
+        // Any text with the files is treated as a caption.
+        await message.react('⏳').catch(() => null);
+        try {
+          result = await requestUploads({ guild: message.guild, member, attachments: files.slice(0, 10), textChannelId: message.channelId });
+        } finally {
+          await message.delete().catch(() => null);
+        }
+      } else {
+        result = await requestSongs({ guild: message.guild, member, query, textChannelId: message.channelId });
+      }
       flash(message.guildId, `<@${member.id}> ${result}`, 5000);
     } catch (err) {
       if (!(err instanceof UserError)) log.error('Request from channel failed:', err);

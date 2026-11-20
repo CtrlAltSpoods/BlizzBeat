@@ -22,7 +22,7 @@ import {
   formatDuration,
   isUrl,
   progressBar,
-  sourceLabel,
+  trackSourceLabel,
   trackDuration,
   trackLength,
   truncate,
@@ -146,6 +146,7 @@ function idleEmbed(guildId, player, settings) {
         `Join a voice channel and **type a song name or link** in this channel, or use ${commandMention('play')}.`,
         '',
         `🔎 Searches use **${SEARCH_SOURCES[settings.searchSource] ?? settings.searchSource}**. Links from YouTube, SoundCloud${config.spotifyEnabled ? ', Spotify' : ''} and more work too.`,
+        ...(settings.uploadsEnabled ? [`📎 You can also **drop an audio file** here to play it.`] : []),
         `📻 Autoplay is **${settings.autoplay ? 'on' : 'off'}**.`,
       ].join('\n'),
     )
@@ -189,7 +190,7 @@ function playingEmbed(player, settings) {
       { name: 'Autoplay', value: settings.autoplay ? 'On' : 'Off', inline: true },
       { name: 'Effect', value: `${EFFECTS[currentEffect(player)]?.label ?? 'Off'}`, inline: true },
     )
-    .setFooter({ text: `${sourceLabel(info.sourceName)} · in ${player.voiceChannelId ? (client.channels.cache.get(player.voiceChannelId)?.name ?? 'voice') : 'voice'}` });
+    .setFooter({ text: `${trackSourceLabel(track)} · in ${player.voiceChannelId ? (client.channels.cache.get(player.voiceChannelId)?.name ?? 'voice') : 'voice'}` });
 
   const votes = voteStatus(player);
   if (votes) embed.addFields({ name: 'Skip votes', value: `🗳️ ${votes.count}/${votes.needed}`, inline: true });

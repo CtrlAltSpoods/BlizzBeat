@@ -5,12 +5,13 @@
 import { execFile, spawn } from 'node:child_process';
 import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import { lookup } from 'node:dns/promises';
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { createReadStream, existsSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import http from 'node:http';
 import net from 'node:net';
 import { join } from 'node:path';
 import { config } from './config.js';
 import { log } from './logger.js';
+import { CONTENT_TYPES, UPLOAD_PREFIX, uploadPath } from './uploads.js';
 
 const YTDLP = process.env.YTDLP_PATH || '/usr/local/bin/blizzbeat-yt-dlp';
 const FFMPEG = process.env.FFMPEG_PATH || 'ffmpeg';
@@ -216,6 +217,49 @@ function startPipeline(page, media) {
   return { ffmpeg, kill: () => procs.forEach((p) => p.kill('SIGKILL')), errors: () => errText.trim() };
 }
 
+/** Uploaded files are served as-is with Range support, so Lavalink knows the length and can seek. */
+function serveUpload(req, res, name) {
+  const path = uploadPath(name);
+  let size;
+  try {
+    size = path ? statSync(path).size : -1;
+  } catch {
+    size = -1;
+  }
+  if (size < 0) {
+    res.writeHead(404).end();
+    return;
+  }
+  const type = CONTENT_TYPES[name.split('.').pop()] ?? 'application/octet-stream';
+  const headers = { 'Content-Type': type, 'Accept-Ranges': 'bytes', 'Cache-Control': 'no-store' };
+  let start = 0;
+  let end = size - 1;
+  const range = /^bytes=(\d*)-(\d*)$/.exec(String(req.headers.range ?? '').trim());
+  if (range && (range[1] || range[2])) {
+    if (range[1]) {
+      start = Number(range[1]);
+      if (range[2]) end = Math.min(Number(range[2]), size - 1);
+    } else {
+      start = Math.max(0, size - Number(range[2]));
+    }
+    if (start > end || start >= size) {
+      res.writeHead(416, { 'Content-Range': `bytes */${size}` }).end();
+      return;
+    }
+    res.writeHead(206, { ...headers, 'Content-Range': `bytes ${start}-${end}/${size}`, 'Content-Length': end - start + 1 });
+  } else {
+    res.writeHead(200, { ...headers, 'Content-Length': size });
+  }
+  if (req.method === 'HEAD') {
+    res.end();
+    return;
+  }
+  const stream = createReadStream(path, { start, end });
+  stream.on('error', () => res.destroy());
+  req.on('close', () => stream.destroy());
+  stream.pipe(res);
+}
+
 async function handle(req, res) {
   const url = new URL(req.url, 'http://127.0.0.1');
   if (url.pathname !== '/media') {
@@ -230,6 +274,10 @@ async function handle(req, res) {
   }
   if (!page || !verify(page, url.searchParams.get('s'))) {
     res.writeHead(403).end();
+    return;
+  }
+  if (page.startsWith(UPLOAD_PREFIX)) {
+    serveUpload(req, res, page.slice(UPLOAD_PREFIX.length));
     return;
   }
   if (req.method === 'HEAD') {

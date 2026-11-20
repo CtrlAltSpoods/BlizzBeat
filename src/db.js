@@ -56,6 +56,8 @@ export function defaultSettings() {
     maxSongMinutes: 0, // 0 = no limit
     maxPerUser: 0, // 0 = no limit
     allowPlaylists: true,
+    uploadsEnabled: true, // audio files dropped into the player channel
+    uploadMaxMb: 100, // per file; Discord's own upload limit applies too
 
     // Idle behaviour
     autoLeaveMinutes: d.autoLeaveMinutes,
