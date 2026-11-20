@@ -187,6 +187,16 @@ try {
   bad('/play replies', err.stack);
 }
 
+// --- SoundCloud link: plays directly, or falls back to the same song from YouTube
+const sc = fakeInteraction('play', { song: 'https://soundcloud.com/forss/flickermood' });
+try {
+  await withTimeout(handleInteraction(sc), 40_000, '/play soundcloud');
+  const text = sc.out.replies.at(-1)?.content ?? '';
+  (text && !text.startsWith('❌') ? ok : bad)('/play SoundCloud link', text.replace(/\n/g, ' ').slice(0, 160));
+} catch (err) {
+  bad('/play SoundCloud link', err.message);
+}
+
 const player = lavalink.getPlayer('200');
 if (player) {
   ok('player created', `vc=${player.voiceChannelId} volume=${player.volume} current="${player.queue.current?.info?.title ?? '-'}"`);

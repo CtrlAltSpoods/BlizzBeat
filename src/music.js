@@ -19,6 +19,33 @@ export const SEARCH_SOURCES = {
 };
 
 const SPOTIFY_LINK = /^https?:\/\/(open\.spotify\.com|spotify\.link|play\.spotify\.com)\//i;
+const SOUNDCLOUD_LINK = /^https?:\/\/((www|m|on)\.)?soundcloud\.(com|app\.goo\.gl)\//i;
+
+/**
+ * Title + artist of a SoundCloud link via SoundCloud's public oEmbed endpoint (works for on.soundcloud.com
+ * share links too, after following the redirect). Returns null when it can't tell.
+ */
+async function soundcloudInfo(url) {
+  try {
+    let target = url;
+    if (/^https?:\/\/on\.soundcloud\.com\//i.test(url)) {
+      const r = await fetch(url, { redirect: 'follow', signal: AbortSignal.timeout(8000) });
+      target = r.url || url;
+    }
+    const res = await fetch(`https://soundcloud.com/oembed?format=json&url=${encodeURIComponent(target.split('?')[0])}`, {
+      signal: AbortSignal.timeout(8000),
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    const author = String(data.author_name ?? '').trim();
+    let title = String(data.title ?? '').trim();
+    if (author && title.toLowerCase().endsWith(` by ${author.toLowerCase()}`)) title = title.slice(0, -(author.length + 4)).trim();
+    const isSet = /\/sets\//i.test(target);
+    return title ? { title, author, isSet } : null;
+  } catch {
+    return null;
+  }
+}
 
 export function isAdmin(member) {
   return Boolean(member?.permissions?.has(PermissionFlagsBits.ManageGuild));
@@ -190,6 +217,26 @@ export async function requestSongs({ guild, member, query, next = false, textCha
     res = await player.search({ query: text, source: fallbackSource }, requester).catch(() => res);
   }
 
+  // SoundCloud links currently fail in Lavalink (SoundCloud's new stream format, lavaplayer #204).
+  // Play the same song from YouTube instead, like Spotify links. Only kicks in when SoundCloud fails.
+  let mirroredFrom = null;
+  if (link && SOUNDCLOUD_LINK.test(text) && (res.loadType === 'error' || !res.tracks?.length)) {
+    const sc = await soundcloudInfo(text);
+    if (sc?.isSet) {
+      throw new UserError("SoundCloud playlists can't be played right now (SoundCloud changed its streaming format and Lavalink hasn't caught up). Single tracks still work.");
+    }
+    if (sc) {
+      const mirror = await player
+        .search({ query: `${sc.title} ${sc.author}`.trim(), source: resolveSearchSource('ytmsearch') }, requester)
+        .catch(() => null);
+      if (mirror?.tracks?.length) {
+        res = { ...mirror, loadType: 'track', tracks: [mirror.tracks[0]] };
+        mirroredFrom = sc;
+        log.info(`[${guild.id}] SoundCloud link failed; playing YouTube match for "${sc.title}" by ${sc.author}`);
+      }
+    }
+  }
+
   if (res.loadType === 'error') {
     throw new UserError(`I couldn't load that: ${truncate(res.exception?.message ?? 'unknown error', 150)}`);
   }
@@ -235,6 +282,7 @@ export async function requestSongs({ guild, member, query, next = false, textCha
   const notes = [];
   if (tooLong) notes.push(`${tooLong} skipped for being too long`);
   if (dropped) notes.push(`${dropped} skipped because of queue limits`);
+  if (mirroredFrom) notes.push("SoundCloud can't stream right now, so this is the same song from YouTube");
   const noteText = notes.length ? `\n-# ${notes.join(' · ')}` : '';
 
   if (isPlaylist) {
@@ -243,7 +291,7 @@ export async function requestSongs({ guild, member, query, next = false, textCha
     return `📃 Added **${tracks.length}** songs from **${name}** (${formatDuration(total)})${noteText}`;
   }
   const track = tracks[0];
-  if (startNow) return `▶️ Now playing ${trackLink(track)} \`${trackDuration(track)}\``;
+  if (startNow) return `▶️ Now playing ${trackLink(track)} \`${trackDuration(track)}\`${noteText}`;
   const position = next ? 1 : player.queue.tracks.length;
   return `🎶 Queued ${trackLink(track)} \`${trackDuration(track)}\` at **#${position}**${noteText}`;
 }
