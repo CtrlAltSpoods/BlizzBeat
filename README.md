@@ -35,13 +35,25 @@ A self-hosted Discord music bot with a dedicated player channel, in the spirit o
 git clone https://github.com/CtrlAltSpoods/Blizzbeat.git
 cd Blizzbeat
 cp .env.example .env      # then put your DISCORD_TOKEN in .env
-docker compose up -d --build
+docker compose up -d --build   # or: docker compose pull && docker compose up -d
 docker compose logs -f    # watch it start; copy the invite link it prints
 ```
 
 The first start takes a minute while Lavalink downloads its YouTube and Spotify plugins. They're cached in a volume after that.
 
-If you don't want to build it yourself, every push to `main` builds a multi-arch image (amd64 and arm64) to GitHub Container Registry. Swap `build: .` for `image: ghcr.io/ctrlaltspoods/blizzbeat:latest` in `docker-compose.yml`. If the repo is private, run `docker login ghcr.io` first or make the package public.
+### Prebuilt image
+
+Every push to `main` is checked and then built by GitHub Actions into a multi-arch image (amd64 and arm64): `ghcr.io/ctrlaltspoods/blizzbeat:latest`. Each build is also tagged with its short commit SHA, so you can pin or roll back. `docker-compose.yml` points at this image. To update a running bot:
+
+```bash
+docker compose pull && docker compose up -d
+```
+
+The repo is private, so the image is too. Log in once on the server with a GitHub [personal access token](https://github.com/settings/tokens) that has the `read:packages` scope:
+
+```bash
+echo <TOKEN> | docker login ghcr.io -u <your-github-username> --password-stdin
+```
 
 Running it without Compose:
 

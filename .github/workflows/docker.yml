@@ -1,17 +1,64 @@
 name: Build Docker image
 
+# Every push to main checks the code, then builds the Blizzbeat image
+# (amd64 + arm64) and publishes it to ghcr.io/<owner>/blizzbeat.
 on:
   push:
     branches: [main]
     tags: ['v*']
+    paths-ignore:
+      - '**.md'
+      - 'assets/src/**'
+      - 'assets/*.svg'
   workflow_dispatch:
 
 permissions:
   contents: read
   packages: write
 
+concurrency:
+  group: docker-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+
+      - name: Syntax-check bot and scripts
+        run: |
+          for f in $(find src -name '*.js'); do node --check "$f"; done
+          for f in docker/*.sh; do bash -n "$f"; done
+
+      - name: Load every module (catches bad imports)
+        env:
+          DATA_DIR: /tmp/blizzbeat-ci
+          DISCORD_TOKEN: ci-placeholder
+        run: |
+          node --disable-warning=ExperimentalWarning --input-type=module -e "
+            for (const m of ['./src/client.js','./src/db.js','./src/music.js','./src/controller.js','./src/persistence.js','./src/status.js','./src/commands/user.js','./src/commands/admin.js','./src/interactions.js','./src/events.js']) await import(m);
+            const { allCommands } = await import('./src/interactions.js');
+            const json = allCommands.map((c) => c.toJSON());
+            console.log('OK:', json.length, 'slash commands:', json.map((c) => c.name).join(', '));
+          "
+
+      - name: Lavalink config is valid YAML
+        run: |
+          LAVALINK_PASSWORD=ci SPOTIFY_ENABLED=true SPOTIFY_CLIENT_ID=a SPOTIFY_CLIENT_SECRET=b \
+            ./docker/lavalink-config.sh > /tmp/application.yml
+          python3 -m pip install --quiet pyyaml
+          python3 -c "import yaml; yaml.safe_load(open('/tmp/application.yml')); print('application.yml OK')"
+
   build:
+    needs: check
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -43,3 +90,13 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      - name: Summary
+        run: |
+          {
+            echo "### 🐳 Blizzbeat image published"
+            echo '```'
+            echo "${{ steps.meta.outputs.tags }}"
+            echo '```'
+            echo "Update a server with: \`docker compose pull && docker compose up -d\`"
+          } >> "$GITHUB_STEP_SUMMARY"

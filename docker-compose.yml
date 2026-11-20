@@ -1,9 +1,10 @@
 services:
   blizzbeat:
+    # Prebuilt image from GitHub Actions (rebuilt on every push to main).
+    # Update with: docker compose pull && docker compose up -d
+    image: ghcr.io/ctrlaltspoods/blizzbeat:latest
+    # Or build it yourself instead: docker compose up -d --build
     build: .
-    # Or use the image built by GitHub Actions instead of building locally:
-    # image: ghcr.io/ctrlaltspoods/blizzbeat:latest
-    image: blizzbeat:latest
     container_name: blizzbeat
     restart: unless-stopped
     stop_grace_period: 20s # time to save the queue and leave voice cleanly
