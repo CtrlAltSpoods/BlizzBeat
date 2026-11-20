@@ -193,24 +193,59 @@ if __name__ == '__main__':
     Path(__file__).resolve().parent.parent.joinpath('banner.svg').write_text(banner_svg())
     print('wrote banner.svg')
 
-if __name__ == '__main__':
-    # ---- Square avatar (512x512) using the same emblem, for the bot's profile picture. ----
-    defs = DEFS
-    av = ['<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">', defs,
-          '<rect width="512" height="512" fill="url(#sky)"/>',
-          '<circle cx="256" cy="256" r="230" fill="#4fc3ff" opacity="0.10" filter="url(#soft)"/>']
-    random.seed(3)
-    for _ in range(45):
-        av.append(f'<circle cx="{random.uniform(0, 512):.1f}" cy="{random.uniform(0, 512):.1f}" r="{random.choice([1, 1.5, 2, 2.6])}" fill="#fff" opacity="{random.uniform(0.3, 0.8):.2f}"/>')
+# ---- Square avatar (512x512) using the same emblem, for the bot's profile picture. ----
+random.seed(3)
+AV_SNOW = [(random.uniform(0, 512), random.uniform(0, 512), random.choice([1, 1.5, 2, 2.6]), random.uniform(0.3, 0.8))
+           for _ in range(45)]
+random.seed(5)
+AV_SWAY = [random.uniform(0, TAU) for _ in AV_SNOW]
+
+
+def avatar_svg(t=None):
+    """The avatar. t=None draws the still image; 0 <= t < 1 draws that moment of a seamless loop."""
+    anim = t is not None
+    t = t or 0.0
+    av = ['<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">', DEFS,
+          '<rect width="512" height="512" fill="url(#sky)"/>']
+    halo = 0.10 + (0.05 * math.sin(TAU * t) if anim else 0)
+    av.append(f'<circle cx="256" cy="256" r="230" fill="#4fc3ff" opacity="{halo:.3f}" filter="url(#soft)"/>')
+    span = 512 + 12
+    for k, (x, y, r, o) in enumerate(AV_SNOW):
+        if anim:
+            y = (y + 6 + (1 if r < 2 else 2) * span * t) % span - 6
+            x += 6 * math.sin(TAU * t + AV_SWAY[k])
+        av.append(f'<circle cx="{x:.1f}" cy="{y:.1f}" r="{r}" fill="#fff" opacity="{o:.2f}"/>')
     av.append('<g transform="translate(256 256) scale(1.75) translate(-205 -190)">')
-    av.append('<circle cx="205" cy="190" r="118" fill="none" stroke="#7fd6ff" stroke-width="4" opacity="0.55"/>')
-    av.append(f'<g filter="url(#flakeGlow)">{snowflake(205, 190, 92, "url(#ice)")}</g>')
-    # Eighth note in the centre of the snowflake.
-    av.append('<g fill="#0b2446">'
+    ring = 0.55 + (0.2 * math.sin(TAU * t) if anim else 0)
+    av.append(f'<circle cx="205" cy="190" r="118" fill="none" stroke="#7fd6ff" stroke-width="4" opacity="{ring:.2f}"/>')
+    if anim:
+        # A dotted orbit that turns by one dot per loop (seamless), like the channel banner's ring.
+        dash = 2 * math.pi * 128 / 48
+        av.append(f'<circle cx="205" cy="190" r="128" fill="none" stroke="#7fd6ff" stroke-width="2" opacity="0.35" '
+                  f'stroke-dasharray="{dash * 0.25:.3f} {dash * 0.75:.3f}" transform="rotate({360 / 48 * t:.2f} 205 190)"/>')
+    # The snowflake turns a sixth of a circle per loop; it has six arms, so the loop is seamless.
+    # Its shading is counter-rotated so the light always comes from the top, as in the still avatar.
+    spin = 60 * t if anim else 0
+    fill = 'url(#ice)'
+    if anim:
+        av.append(f'<defs><linearGradient id="iceSpin" gradientUnits="userSpaceOnUse" x1="205" y1="88" x2="205" y2="292" '
+                  f'gradientTransform="rotate({-spin:.2f} 205 190)">'
+                  '<stop offset="0" stop-color="#ffffff"/><stop offset="0.55" stop-color="#d9f4ff"/>'
+                  '<stop offset="1" stop-color="#7fd6ff"/></linearGradient></defs>')
+        fill = 'url(#iceSpin)'
+    # (Glow outside the rotation: blurring inside a rotated group smears it.)
+    av.append(f'<g filter="url(#flakeGlow)"><g transform="rotate({spin:.2f} 205 190)">{snowflake(205, 190, 92, fill)}</g></g>')
+    # Eighth note in the centre of the snowflake (stays upright); it bobs gently in the animation.
+    bob = 2.2 * math.sin(TAU * 2 * t) if anim else 0
+    av.append(f'<g fill="#0b2446" transform="translate(0 {bob:.2f})">'
               '<ellipse cx="200" cy="199.5" rx="7.6" ry="5.7" transform="rotate(-22 200 199.5)"/>'
               '<rect x="204.6" y="172" width="3.6" height="28" rx="1.2"/>'
               '<path d="M206.4 172 C212 175.5 219.5 179 217.5 191.5 C216.5 185 212.5 182.5 206.4 181.5 Z"/>'
               '</g>')
     av.append('</g></svg>')
-    Path(__file__).resolve().parent.parent.joinpath('avatar.svg').write_text('\n'.join(av))
+    return '\n'.join(av)
+
+
+if __name__ == '__main__':
+    Path(__file__).resolve().parent.parent.joinpath('avatar.svg').write_text(avatar_svg())
     print('wrote avatar.svg')
