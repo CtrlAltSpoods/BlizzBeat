@@ -2,7 +2,7 @@
 import { EmbedBuilder, InteractionContextType, SlashCommandBuilder } from 'discord.js';
 import { commandMention, lavalink, toRequester } from '../client.js';
 import { config } from '../config.js';
-import { getSettings } from '../db.js';
+import { clearFavourites, getSettings, listFavourites, removeFavourite } from '../db.js';
 import { nowPlayingEmbed } from '../controller.js';
 import * as music from '../music.js';
 import { UserError } from '../music.js';
@@ -100,8 +100,60 @@ export const userCommands = [
           .addChoices(...Object.entries(music.EFFECTS).map(([value, e]) => ({ name: `${e.emoji} ${e.label}`, value }))),
       ),
   ),
+  guildOnly(
+    new SlashCommandBuilder()
+      .setName('favourites')
+      .setDescription('Songs you saved with the ❤️ button on the player')
+      .addSubcommand((sc) =>
+        sc
+          .setName('play')
+          .setDescription('Queue all your favourites, or one of them')
+          .addStringOption((o) => o.setName('song').setDescription('Just this one (leave empty for all)').setAutocomplete(true))
+          .addBooleanOption((o) => o.setName('shuffle').setDescription('Shuffle them'))
+          .addBooleanOption((o) => o.setName('next').setDescription('Put them at the front of the queue')),
+      )
+      .addSubcommand((sc) =>
+        sc
+          .setName('list')
+          .setDescription('See your favourites')
+          .addIntegerOption((o) => o.setName('page').setDescription('Page number').setMinValue(1)),
+      )
+      .addSubcommand((sc) =>
+        sc
+          .setName('remove')
+          .setDescription('Remove a song from your favourites')
+          .addStringOption((o) => o.setName('song').setDescription('The song').setRequired(true).setAutocomplete(true)),
+      )
+      .addSubcommand((sc) =>
+        sc
+          .setName('clear')
+          .setDescription('Remove all your favourites')
+          .addBooleanOption((o) => o.setName('confirm').setDescription('Yes, remove them all').setRequired(true)),
+      ),
+  ),
   guildOnly(new SlashCommandBuilder().setName('help').setDescription('How to use Blizzbeat')),
 ];
+
+function favouritesEmbed(member, guildId, page) {
+  const favs = listFavourites(member.id);
+  const perPage = 15;
+  const pages = Math.max(1, Math.ceil(favs.length / perPage));
+  const p = Math.min(Math.max(page, 1), pages);
+  const lines = favs.slice((p - 1) * perPage, p * perPage).map((f, i) => {
+    const n = (p - 1) * perPage + i + 1;
+    const length = f.live ? 'LIVE' : formatDuration(f.durationMs);
+    return `\`${n}.\` [${escapeMd(truncate(f.title, 60))}](<${f.link}>) · ${escapeMd(truncate(f.author, 30))} \`${length}\``;
+  });
+  return new EmbedBuilder()
+    .setColor(getSettings(guildId).embedColor)
+    .setTitle(`❤️ ${member.displayName}'s favourites`)
+    .setDescription(
+      lines.length
+        ? lines.join('\n')
+        : "_Nothing saved yet._ Press ❤️ on the player while a song is playing to save it here.",
+    )
+    .setFooter({ text: `Page ${p}/${pages} · ${favs.length} song${favs.length === 1 ? '' : 's'} · saved across every server with Blizzbeat` });
+}
 
 function queueEmbed(guildId, page) {
   const player = lavalink.getPlayer(guildId);
@@ -149,6 +201,33 @@ export async function runUserCommand(interaction, flags) {
         textChannelId: interaction.channelId,
       });
       return { content };
+    }
+    case 'favourites': {
+      const sub = options.getSubcommand();
+      if (sub === 'play') {
+        const content = await music.requestFavourites({
+          guild,
+          member,
+          key: options.getString('song') || null,
+          shuffleThem: options.getBoolean('shuffle') ?? false,
+          next: options.getBoolean('next') ?? false,
+          textChannelId: interaction.channelId,
+        });
+        return { content };
+      }
+      if (sub === 'list') return { embeds: [favouritesEmbed(member, guild.id, options.getInteger('page') ?? 1)] };
+      if (sub === 'remove') {
+        const key = options.getString('song', true);
+        const fav = listFavourites(member.id).find((f) => f.key === key);
+        if (!fav || !removeFavourite(member.id, key)) throw new UserError("That song isn't in your favourites. Pick one from the list as you type.");
+        return { content: `💔 Removed **${escapeMd(truncate(fav.title, 80))}** from your favourites.` };
+      }
+      if (sub === 'clear') {
+        if (!options.getBoolean('confirm', true)) return { content: 'Nothing removed.' };
+        const n = clearFavourites(member.id);
+        return { content: n ? `🗑️ Removed all **${n}** of your favourites.` : 'You had no favourites to remove.' };
+      }
+      return { content: 'Unknown option.' };
     }
     case 'pause':
       return { content: await music.pause(music.assertCanControl(member, 'pause')) };
@@ -249,6 +328,10 @@ function helpEmbed(guildId) {
         value: `${commandMention('queue')} ${commandMention('nowplaying')} ${commandMention('shuffle')} ${commandMention('remove')} ${commandMention('move')} ${commandMention('clear')}`,
       },
       {
+        name: 'Favourites',
+        value: `Press ❤️ on the player to save the song (press again to remove it). ${commandMention('favourites', 'play')} queues them, ${commandMention('favourites', 'list')} shows them. They follow you to every server with Blizzbeat.`,
+      },
+      {
         name: 'Best sound',
         value: "Keep Blizzbeat at **100%** with no effect: it then sends the original audio with no re-encoding. Use Discord's own slider (right-click Blizzbeat → User Volume) to make it quieter for you.",
       },
@@ -260,6 +343,19 @@ function helpEmbed(guildId) {
     .setFooter({
       text: `Music engine: ${lavalink.useable ? 'connected ✅' : 'starting or offline ⏳'} · Sources: YouTube${config.spotifyEnabled ? ', Spotify' : ''}, SoundCloud`,
     });
+}
+
+/** Suggestions for /favourites play|remove: the member's own saved songs, filtered by what they type. */
+export async function autocompleteFavourites(interaction) {
+  const typed = String(interaction.options.getFocused() ?? '').trim().toLowerCase();
+  const favs = listFavourites(interaction.user.id);
+  const hits = typed ? favs.filter((f) => `${f.title} ${f.author}`.toLowerCase().includes(typed)) : favs;
+  return interaction.respond(
+    hits.slice(0, 25).map((f) => ({
+      name: truncate(`${f.title} · ${f.author}${f.live ? ' (LIVE)' : ` (${formatDuration(f.durationMs)})`}`, 100),
+      value: f.key,
+    })),
+  );
 }
 
 /** Live search suggestions while typing in /play. */

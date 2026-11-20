@@ -17,7 +17,7 @@ import { CONTENT_TYPES, UPLOAD_PREFIX, uploadPath } from './uploads.js';
 const YTDLP = process.env.YTDLP_PATH || '/usr/local/bin/blizzbeat-yt-dlp';
 const FFMPEG = process.env.FFMPEG_PATH || 'ffmpeg';
 export const MEDIA_PORT = Number(process.env.MEDIA_PROXY_PORT || 2334);
-const OPUS_BITRATE = process.env.MEDIA_OPUS_BITRATE || '192k';
+const OPUS_BITRATE = process.env.MEDIA_OPUS_BITRATE || '256k';
 
 /* ------------------------------ signing ------------------------------ */
 

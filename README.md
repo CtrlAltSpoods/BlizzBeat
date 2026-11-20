@@ -8,6 +8,7 @@ A self-hosted Discord music bot with a dedicated player channel, in the spirit o
 
 - **Player channel.** `/setup create` makes a `#blizzbeat` channel with a banner at the top and a single player message under it. The player message is **edited in place**, never re-posted. It shows the song, artwork, a progress bar, who requested it, volume, loop mode and the upcoming queue.
 - **Type to queue.** Anyone in a voice channel can type a song name or link in the Blizzbeat channel. The message is removed and the song is queued, so the channel stays clean.
+- **❤️ Favourites.** Press ❤️ on the player to save the song that's playing (press it again to remove it). `/favourites play` queues them later, on any server that has Blizzbeat. Only you see the confirmation.
 - **Drop a file to play it.** Drag an audio file (or a video, for its sound) into the Blizzbeat channel and it's queued like any other song. See [Playing your own files](#playing-your-own-files).
 - **Buttons** on the player: ⏮️ previous, ⏯️ pause/resume, ⏭️ skip, ⏹️ stop, 🔉/🔊 volume, 🔀 shuffle, 🔁 loop, 📻 autoplay. Under them is an **audio effects** menu.
 - **Autoplay.** When the queue runs out, Blizzbeat keeps going with related songs (YouTube's mix for the last song, then the same artist). Toggle it with 📻 or `/autoplay`.
@@ -109,6 +110,8 @@ Blizzbeat needs these permissions in its channel: View Channel, Send Messages, E
 | `/leave` | Disconnect from voice |
 | `/autoplay [enabled]` | Turn autoplay on or off (toggles if left empty) |
 | `/effect name` | Bass boost, nightcore, slowed, 8D, karaoke, soft, pop EQ or off |
+| `/favourites play [song] [shuffle] [next]` | Queue all your ❤️ favourites, or one of them |
+| `/favourites list [page]` `/favourites remove song` `/favourites clear` | See or tidy your favourites (only you see these) |
 | `/help` | Quick guide |
 
 Commands used inside the Blizzbeat channel reply privately so the channel stays clean.
@@ -163,7 +166,7 @@ At any other volume, or with an effect on, Lavalink has to decode and re-encode 
 
 YouTube, Spotify, Bandcamp, Twitch and Vimeo links play through Lavalink's own sources. **Any other link** is handed to yt-dlp, which supports [about 1,800 sites](https://github.com/yt-dlp/yt-dlp/blob/master/supportedsites.md), SoundCloud included. Here's what happens:
 1. yt-dlp reads the title, artist, length, artwork and playlist entries.
-2. When the song plays, ffmpeg converts its audio to Opus at 192 kbps (`MEDIA_OPUS_BITRATE`).
+2. When the song plays, ffmpeg converts its audio to Opus at 256 kbps (`MEDIA_OPUS_BITRATE`). Audio that is already Opus (YouTube, some SoundCloud tracks) is passed through untouched instead.
 3. Lavalink plays that from a small server inside the container. It only listens on 127.0.0.1 and only serves links the bot signed itself.
 
 For safety, links that point to private network addresses (your LAN, the container itself) are refused. Songs from these sites can't be seeked, and if yt-dlp can't read a SoundCloud link, Blizzbeat plays the same song from YouTube instead.
@@ -211,6 +214,7 @@ Everything is documented in [`.env.example`](.env.example). The main settings ar
 | `PROGRESS_UPDATE_SECONDS` | `10` | How often the progress bar refreshes |
 | `DEFAULT_REQUEST_COOLDOWN`, `DEFAULT_CONTROL_COOLDOWN` | `3`, `0` | Starting cooldowns in seconds |
 | `LAVALINK_FRAME_BUFFER_MS` | `1000` | Starting audio buffer (overridden by `/config buffer`) |
+| `MEDIA_OPUS_BITRATE` | `256k` | Opus bitrate for songs from yt-dlp sites that aren't Opus already (Opus audio is passed through untouched) |
 | `AUTO_UPDATE` | `true` | In-container updates of Lavalink and its plugins (see *Staying up to date*) |
 | `RESTORE_MAX_AGE_MINUTES` | `60` | Don't resume queues saved longer ago than this (24/7 servers always resume) |
 | `JAVA_OPTS` | `-Xms128m -Xmx512m` | Memory for the built-in Lavalink |

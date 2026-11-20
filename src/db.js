@@ -20,6 +20,13 @@ db.exec(`
     data       TEXT NOT NULL,
     updated_at INTEGER NOT NULL
   );
+  CREATE TABLE IF NOT EXISTS favourites (
+    user_id   TEXT NOT NULL,
+    track_key TEXT NOT NULL,
+    data      TEXT NOT NULL,
+    added_at  INTEGER NOT NULL,
+    PRIMARY KEY (user_id, track_key)
+  );
 `);
 
 const selectStmt = db.prepare('SELECT data FROM guild_settings WHERE guild_id = ?');
@@ -167,6 +174,50 @@ export function loadSessions() {
     .map((r) => {
       try {
         return { guildId: r.guild_id, updatedAt: r.updated_at, data: JSON.parse(r.data) };
+      } catch {
+        return null;
+      }
+    })
+    .filter(Boolean);
+}
+
+/* ------------------------------ Favourites (per user, across servers) ------------------------------ */
+
+export const MAX_FAVOURITES = 500;
+const favInsert = db.prepare('INSERT OR IGNORE INTO favourites (user_id, track_key, data, added_at) VALUES (?, ?, ?, ?)');
+const favDelete = db.prepare('DELETE FROM favourites WHERE user_id = ? AND track_key = ?');
+const favClear = db.prepare('DELETE FROM favourites WHERE user_id = ?');
+const favList = db.prepare('SELECT track_key, data, added_at FROM favourites WHERE user_id = ? ORDER BY added_at DESC, rowid DESC');
+const favCount = db.prepare('SELECT COUNT(*) AS n FROM favourites WHERE user_id = ?');
+const favHas = db.prepare('SELECT 1 AS hit FROM favourites WHERE user_id = ? AND track_key = ?');
+
+/** Returns 'added', 'exists' or 'full'. */
+export function addFavourite(userId, key, data) {
+  if (favHas.get(userId, key)) return 'exists';
+  if (favCount.get(userId).n >= MAX_FAVOURITES) return 'full';
+  favInsert.run(userId, key, JSON.stringify(data), Date.now());
+  return 'added';
+}
+
+export function removeFavourite(userId, key) {
+  return favDelete.run(userId, key).changes > 0;
+}
+
+export function clearFavourites(userId) {
+  return favClear.run(userId).changes;
+}
+
+export function hasFavourite(userId, key) {
+  return Boolean(favHas.get(userId, key));
+}
+
+/** Newest first: [{ key, addedAt, ...trackData }] */
+export function listFavourites(userId) {
+  return favList
+    .all(userId)
+    .map((r) => {
+      try {
+        return { key: r.track_key, addedAt: r.added_at, ...JSON.parse(r.data) };
       } catch {
         return null;
       }

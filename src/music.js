@@ -1,8 +1,17 @@
 // Song requests, playback controls, permission checks and idle handling.
+import { createHash } from 'node:crypto';
 import { ChannelType, PermissionFlagsBits } from 'discord.js';
-import { client, lavalink, playerHooks, toRequester } from './client.js';
+import { client, commandMention, lavalink, playerHooks, toRequester } from './client.js';
 import { config } from './config.js';
-import { getSettings, updateSettings } from './db.js';
+import {
+  addFavourite,
+  getSettings,
+  hasFavourite,
+  listFavourites,
+  MAX_FAVOURITES,
+  removeFavourite,
+  updateSettings,
+} from './db.js';
 import { log } from './logger.js';
 import { clearVoiceStatus } from './status.js';
 import { assertPublicUrl, isNativeLink, lastMediaError, mediaUrl, resolveLink, searchYoutube, warmMedia } from './media.js';
@@ -482,6 +491,103 @@ export async function requestUploads({ guild, member, attachments, textChannelId
 
   const player = await playerFor(guild, member, textChannelId);
   return enqueue({ guild, member, player, settings, next: false, tracks, groupName: 'your files', notes: problems });
+}
+
+/* ----------------------------- Favourites ----------------------------- */
+
+/** What gets stored for a favourite: enough to queue the song again later, on any server. */
+export function favouriteFromTrack(track) {
+  if (!track?.info) throw new UserError('Nothing is playing right now.');
+  if (uploadNameOf(track)) {
+    throw new UserError("Uploaded files can't be saved to favourites, because they're deleted after they've played.");
+  }
+  const ytId = youtubeIdOf(track);
+  const link = ytId ? `https://www.youtube.com/watch?v=${ytId}` : displayUri(track);
+  if (!isUrl(link)) throw new UserError("This song doesn't have a link, so it can't be saved.");
+  const live = Boolean(track.info.isStream);
+  return {
+    key: ytId ? `yt:${ytId}` : `u:${createHash('sha1').update(link).digest('hex').slice(0, 32)}`,
+    data: {
+      title: String(track.info.title ?? 'Unknown title').slice(0, 250),
+      author: String(track.info.author ?? 'Unknown').slice(0, 120),
+      link,
+      durationMs: live ? 0 : trackLength(track),
+      artworkUrl: track.info.artworkUrl ?? null,
+      // YouTube links replay through whichever YouTube backend is active; other yt-dlp sites need the media server.
+      media: !ytId && Boolean(mediaInfo(track.info.uri)),
+      source: ytId ? 'youtube' : track.info.sourceName,
+      live,
+    },
+  };
+}
+
+function trackFromFavourite(fav, requester) {
+  if (fav.media) {
+    return toUnresolved(
+      { page: fav.link, title: fav.title, author: fav.author, durationMs: fav.durationMs, isLive: fav.live, artworkUrl: fav.artworkUrl },
+      requester,
+    );
+  }
+  return lavalink.utils.buildUnresolvedTrack(
+    {
+      title: fav.title,
+      author: fav.author,
+      duration: fav.durationMs,
+      uri: fav.link,
+      artworkUrl: fav.artworkUrl,
+      sourceName: fav.source || 'youtube',
+      identifier: fav.key.startsWith('yt:') ? fav.key.slice(3) : fav.link,
+      isStream: Boolean(fav.live),
+      isSeekable: !fav.live,
+    },
+    requester,
+  );
+}
+
+/** The ❤️ button: saves the playing song to the member's favourites, or removes it if it's already there. */
+export function toggleFavourite(member, guildId) {
+  const track = lavalink.getPlayer(guildId)?.queue.current;
+  const { key, data } = favouriteFromTrack(track);
+  const name = `[${escapeMd(truncate(data.title, 80))}](<${data.link}>)`;
+  if (hasFavourite(member.id, key)) {
+    removeFavourite(member.id, key);
+    return `💔 Removed ${name} from your favourites.`;
+  }
+  if (addFavourite(member.id, key, data) === 'full') {
+    throw new UserError(`You already have ${MAX_FAVOURITES} favourites. Remove some with ${commandMention('favourites', 'remove')} first.`);
+  }
+  return `❤️ Saved ${name} to your favourites. Play them any time with ${commandMention('favourites', 'play')}.`;
+}
+
+/** /favourites play: one saved song (by key) or all of them. */
+export async function requestFavourites({ guild, member, key = null, shuffleThem = false, next = false, textChannelId }) {
+  const settings = getSettings(guild.id);
+  assertCanRequest(settings, member);
+  let favs = listFavourites(member.id);
+  if (!favs.length) throw new UserError("You haven't saved any favourites yet. Press ❤️ on the player while a song is playing.");
+  if (key) {
+    favs = favs.filter((f) => f.key === key);
+    if (!favs.length) throw new UserError("That song isn't in your favourites. Pick one from the list as you type.");
+  } else {
+    favs.reverse(); // oldest first, in the order they were saved
+    if (shuffleThem) {
+      for (let i = favs.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [favs[i], favs[j]] = [favs[j], favs[i]];
+      }
+    }
+  }
+  const player = await playerFor(guild, member, textChannelId);
+  const requester = toRequester(member);
+  return enqueue({
+    guild,
+    member,
+    player,
+    settings,
+    next,
+    tracks: favs.map((f) => trackFromFavourite(f, requester)),
+    groupName: `${member.displayName}'s favourites`,
+  });
 }
 
 /* ----------------------------- Controls ----------------------------- */

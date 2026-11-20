@@ -331,6 +331,48 @@ for (const [label, query] of probes) {
   }
 }
 
+// --- ❤️ favourites: press the button, list them, queue them, press again to remove
+{
+  const heart = () => {
+    const i = fakeInteraction('heart');
+    Object.assign(i, {
+      customId: 'bb:favourite',
+      channelId: '500',
+      isButton: () => true,
+      isChatInputCommand: () => false,
+      async deferUpdate() {},
+    });
+    return i;
+  };
+  const run = async (i, label) => {
+    await withTimeout(handleInteraction(i), 30_000, label);
+    const r = i.out.replies.at(-1);
+    return r?.content ?? (r?.embeds?.[0]?.data?.description ?? JSON.stringify(r ?? null));
+  };
+  try {
+    const db = await import('../src/db.js');
+    db.clearFavourites(member.id);
+    const current = lavalink.getPlayer('200')?.queue.current;
+    const saved = await run(heart(), '❤️');
+    const favs = db.listFavourites(member.id);
+    (favs.length === 1 && saved.includes('Saved') ? ok : bad)('❤️ saves the playing song', `${saved.slice(0, 120)} (now: ${current?.info?.title})`);
+
+    const listed = await run(fakeInteraction('favourites', {}, 'list'), '/favourites list');
+    (listed.includes(favs[0]?.title?.slice(0, 20) ?? '???') ? ok : bad)('/favourites list', listed.slice(0, 120));
+
+    const pl = lavalink.getPlayer('200');
+    const before = pl?.queue.tracks.length ?? 0;
+    const played = await run(fakeInteraction('favourites', { song: favs[0]?.key }, 'play'), '/favourites play');
+    const after = pl?.queue.tracks.length ?? 0;
+    (after === before + 1 && !played.startsWith('❌') ? ok : bad)('/favourites play', `${played.slice(0, 120)} (queue ${before} → ${after})`);
+
+    const removed = await run(heart(), '❤️ again');
+    (db.listFavourites(member.id).length === 0 && removed.includes('Removed') ? ok : bad)('❤️ again removes it', removed.slice(0, 120));
+  } catch (err) {
+    bad('❤️ favourites', err.stack);
+  }
+}
+
 // --- audio files dropped into the player channel
 {
   const { execFileSync } = await import('node:child_process');

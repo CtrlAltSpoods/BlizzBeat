@@ -88,6 +88,7 @@ function buildComponents(player, settings) {
     button('pause', paused ? '▶️' : '⏸️', paused ? ButtonStyle.Success : ButtonStyle.Primary, idle),
     button('skip', '⏭️', ButtonStyle.Secondary, idle),
     button('stop', '⏹️', ButtonStyle.Danger, idle),
+    button('favourite', '❤️', ButtonStyle.Secondary, idle),
   );
   const row2 = new ActionRowBuilder().addComponents(
     button('voldown', '🔉', ButtonStyle.Secondary, !player),

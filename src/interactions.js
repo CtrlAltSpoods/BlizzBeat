@@ -2,7 +2,7 @@
 import { MessageFlags, OAuth2Scopes, PermissionFlagsBits, PermissionsBitField } from 'discord.js';
 import { SET_VOICE_STATUS } from './status.js';
 import { adminCommands, runAdminCommand } from './commands/admin.js';
-import { autocompletePlay, runUserCommand, userCommands } from './commands/user.js';
+import { autocompleteFavourites, autocompletePlay, runUserCommand, userCommands } from './commands/user.js';
 import { isControllerChannel, requestUpdate } from './controller.js';
 import { getSettings } from './db.js';
 import { deliveryDelayMs } from './diagnostics.js';
@@ -47,6 +47,18 @@ function friendly(err) {
 
 async function handleButton(interaction) {
   const action = interaction.customId.slice(3);
+  if (action === 'favourite') {
+    // Personal, so anyone can press it (no DJ or voice check) and only they see the reply.
+    await interaction.deferReply({ flags: MessageFlags.Ephemeral }).catch(() => null);
+    let content;
+    try {
+      content = music.toggleFavourite(interaction.member ?? interaction.user, interaction.guildId);
+    } catch (err) {
+      content = friendly(err);
+    }
+    await interaction.editReply({ content }).catch(() => null);
+    return;
+  }
   const kind = BUTTON_ACTIONS[action];
   if (!kind) return;
   await interaction.deferUpdate().catch(() => null);
@@ -117,7 +129,9 @@ async function handleEffectMenu(interaction) {
 
 async function handleCommand(interaction) {
   const isAdminCmd = adminNames.has(interaction.commandName);
-  const quiet = isAdminCmd || isControllerChannel(interaction.guildId, interaction.channelId);
+  // Favourites lists are personal: only the person asking sees them.
+  const personal = interaction.commandName === 'favourites' && interaction.options.getSubcommand(false) !== 'play';
+  const quiet = isAdminCmd || personal || isControllerChannel(interaction.guildId, interaction.channelId);
   const flags = quiet ? MessageFlags.Ephemeral : undefined;
 
   // Acknowledge first: Discord only waits 3 seconds. Everything else happens after.
@@ -190,6 +204,8 @@ export async function handleInteraction(interaction) {
   if (interaction.isAutocomplete()) {
     if (interaction.commandName === 'play') {
       await autocompletePlay(interaction).catch(() => interaction.respond([]).catch(() => null));
+    } else if (interaction.commandName === 'favourites') {
+      await autocompleteFavourites(interaction).catch(() => interaction.respond([]).catch(() => null));
     }
     return;
   }
