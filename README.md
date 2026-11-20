@@ -55,6 +55,23 @@ The repo is private, so the image is too. Log in once on the server with a GitHu
 echo <TOKEN> | docker login ghcr.io -u <your-github-username> --password-stdin
 ```
 
+### Unraid
+
+**Docker** tab → **Add Container** (turn on **Advanced View**), then:
+
+| Field | Value |
+|---|---|
+| Name | `blizzbeat` |
+| Repository | `ghcr.io/ctrlaltspoods/blizzbeat:latest` |
+| Network Type | `bridge` (no ports needed) |
+| Extra Parameters | `--stop-timeout 20` |
+| Path: `/data` | `/mnt/user/appdata/blizzbeat/data` |
+| Path: `/opt/lavalink/plugins` | `/mnt/user/appdata/blizzbeat/plugins` |
+| Variable: `DISCORD_TOKEN` | your bot token |
+| Variable: `PUID` / `PGID` | `99` / `100` |
+
+Add any other variables from `.env.example` the same way (**Add another Path, Port, Variable…** → Variable), for example `SPOTIFY_CLIENT_ID` and `SPOTIFY_CLIENT_SECRET`. To update, click the container icon → **Force update** (or turn on auto-update).
+
 Running it without Compose:
 
 ```bash

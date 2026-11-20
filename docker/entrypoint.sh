@@ -11,6 +11,20 @@ if [[ -z "${DISCORD_TOKEN:-}" ]]; then
 fi
 
 LAVALINK_DIR="${LAVALINK_DIR:-/opt/lavalink}"
+DATA_DIR="${DATA_DIR:-/data}"
+
+# Started as root (the default): fix folder ownership for PUID/PGID, then drop privileges.
+# Unraid uses PUID=99 PGID=100; elsewhere the default 1000:1000 matches the image's "node" user.
+if [[ "$(id -u)" == "0" ]]; then
+  PUID="${PUID:-1000}"
+  PGID="${PGID:-1000}"
+  mkdir -p "$DATA_DIR" "$LAVALINK_DIR/plugins"
+  chown -R "$PUID:$PGID" "$DATA_DIR" "$LAVALINK_DIR" || log "WARNING: could not change ownership of $DATA_DIR / $LAVALINK_DIR"
+  rm -f /tmp/lavalink.pass /tmp/blizzbeat.heartbeat
+  log "Running as UID $PUID / GID $PGID."
+  export HOME=/tmp
+  exec setpriv --reuid="$PUID" --regid="$PGID" --clear-groups "$0" "$@"
+fi
 
 # Lavalink only listens inside the container, so a random password is fine unless you set one.
 if [[ -z "${LAVALINK_PASSWORD:-}" ]]; then
@@ -34,7 +48,7 @@ log "Generated Lavalink config (Spotify: $SPOTIFY_ENABLED, YouTube plugin ${YOUT
 
 cd "$LAVALINK_DIR"
 # shellcheck disable=SC2086
-java ${JAVA_OPTS:-} -jar Lavalink.jar &
+java ${JAVA_OPTS:-} -Duser.home=/tmp -jar Lavalink.jar &
 LAVALINK_PID=$!
 
 shutdown() {

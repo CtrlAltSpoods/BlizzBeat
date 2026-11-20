@@ -32,7 +32,8 @@ RUN chmod +x docker/*.sh \
  && mkdir -p /data \
  && chown -R node:node /app /data "$LAVALINK_DIR"
 
-USER node
+# The entrypoint starts as root only to fix folder ownership for PUID/PGID, then drops to that user.
+ENV PUID=1000 PGID=1000
 VOLUME ["/data", "/opt/lavalink/plugins"]
 
 HEALTHCHECK --interval=30s --timeout=10s --start-period=240s --retries=3 CMD ["/app/docker/healthcheck.sh"]
