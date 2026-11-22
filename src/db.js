@@ -63,6 +63,7 @@ export function defaultSettings() {
     maxSongMinutes: 0, // 0 = no limit
     maxPerUser: 0, // 0 = no limit
     allowPlaylists: true,
+    stageStartedBy: null, // Stage channel whose Stage Blizzbeat started (ended again when it leaves)
     autoplayMood: null, // chill | hype | gaming | focus: steers autoplay
     voiceAccess: false, // channel visible only to people in a voice channel
     voiceAccessUsers: [], // members Blizzbeat gave their own "can see" entry

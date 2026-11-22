@@ -196,6 +196,17 @@ For safety, links that point to private network addresses (your LAN, the contain
 
 While it's off, the player shows a tip to mute the channel for people who get notified for every message.
 
+## Stage channels
+
+Summon Blizzbeat to a Stage (join it and request a song) and it runs the Stage for you:
+
+- **Goes live quietly.** If the Stage isn't live yet, Blizzbeat starts it *without* the "Stage started" notification to everyone.
+- **Becomes a speaker** straight away, so everyone in the audience hears the music.
+- **Keeps the topic current:** the Stage topic shows the song that's playing (for example `🎵 Song · Artist`) and how to request one when the queue is empty. If AutoMod blocks a song title as a topic, it uses a plain one instead.
+- **Cleans up:** when Blizzbeat leaves, it ends the Stage, but only if it started it. A Stage someone else started is left running.
+
+This needs Blizzbeat to be a **Stage moderator** in that channel: **Manage Channels**, **Mute Members** and **Move Members** there (new invites include them; for an existing install, add them to Blizzbeat's role on the Stage channel). Without them, Blizzbeat raises its hand so a moderator can invite it to speak, and says what to change.
+
 ## Playing your own files
 
 Join a voice channel and drop an audio file into `#blizzbeat` (up to 10 files in one message). Blizzbeat shows ⏳ while it copies the file, then removes the message and queues the song. Any text you type with the file is ignored.

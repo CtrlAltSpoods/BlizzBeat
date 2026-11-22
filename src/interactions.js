@@ -22,6 +22,9 @@ export const INVITE_PERMISSIONS = new PermissionsBitField([
   PermissionFlagsBits.AddReactions,
   PermissionFlagsBits.ManageChannels,
   PermissionFlagsBits.ManageRoles, // voice-only access: per-member entries on the Blizzbeat channel
+  PermissionFlagsBits.MuteMembers, // Stages: speak and start/edit/end the Stage (with Manage Channels + Move Members)
+  PermissionFlagsBits.MoveMembers,
+  PermissionFlagsBits.RequestToSpeak,
   PermissionFlagsBits.Connect,
   PermissionFlagsBits.Speak,
   SET_VOICE_STATUS,

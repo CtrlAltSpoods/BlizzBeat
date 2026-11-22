@@ -1,6 +1,6 @@
 // Song requests, playback controls, permission checks and idle handling.
 import { createHash } from 'node:crypto';
-import { ChannelType, PermissionFlagsBits } from 'discord.js';
+import { PermissionFlagsBits } from 'discord.js';
 import { client, commandMention, lavalink, playerHooks, toRequester } from './client.js';
 import { config } from './config.js';
 import {
@@ -181,12 +181,8 @@ async function playerFor(guild, member, textChannelId) {
     });
   }
 
-  if (!player.connected) {
-    await player.connect();
-    if (vc.type === ChannelType.GuildStageVoice) {
-      await guild.members.me.voice.setSuppressed(false).catch(() => null);
-    }
-  }
+  // In a Stage, going live and becoming a speaker happen when the bot's voice state arrives (stage.js).
+  if (!player.connected) await player.connect();
   return player;
 }
 

@@ -1,5 +1,5 @@
 // Live status: the bot's "Listening to ..." activity and the voice channel status line.
-import { ActivityType } from 'discord.js';
+import { ActivityType, ChannelType } from 'discord.js';
 import { client, lavalink } from './client.js';
 import { getSettings } from './db.js';
 import { log } from './logger.js';
@@ -57,6 +57,7 @@ export async function setVoiceStatus(player) {
   const track = player?.queue.current;
   if (!channelId || !track) return;
   if (!getSettings(player.guildId).voiceStatus || !canSetStatus(player.guildId, channelId)) return;
+  if (client.channels.cache.get(channelId)?.type === ChannelType.GuildStageVoice) return; // Stages use the topic instead
   const status = truncate(`🎵 ${track.info.title} · ${track.info.author}`, 500);
   if (lastStatus.get(channelId) === status) return;
   try {

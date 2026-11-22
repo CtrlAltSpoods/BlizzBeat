@@ -24,11 +24,13 @@ import { clearVoiceStatus, setVoiceStatus, updatePresence } from './status.js';
 import { looksLikeMedia } from './uploads.js';
 import { attachLiveKeeper, liveWatched } from './live.js';
 import { onVoiceStateUpdate } from './voiceAccess.js';
+import { attachStage, idleStageTopic, onBotVoiceState, setStageTopic } from './stage.js';
 import { lastMediaError } from './media.js';
 import { escapeMd, mediaInfo, truncate } from './util/format.js';
 
 export function registerLavalinkEvents() {
   playerHooks.autoplay = autoplayNext;
+  attachStage({ onNotice: (guildId, text) => flash(guildId, text, 60_000) });
   attachLiveKeeper(lavalink, {
     onGiveUp: (guildId, title) =>
       flash(guildId, `📡 **${escapeMd(truncate(title ?? 'The live stream', 80))}** couldn't reconnect after several tries, so I've stopped. Request it again to retry.`, 60_000),
@@ -47,6 +49,7 @@ export function registerLavalinkEvents() {
     requestUpdate(player.guildId);
     scheduleSave(player.guildId);
     setVoiceStatus(player);
+    setStageTopic(player);
     updatePresence();
     warmTrack(player.queue.tracks[0]); // get the next song's stream ready
   });
@@ -59,6 +62,7 @@ export function registerLavalinkEvents() {
     evaluateIdle(player.guildId);
     scheduleSave(player.guildId);
     clearVoiceStatus(player.guildId, player.voiceChannelId);
+    idleStageTopic(player);
     updatePresence();
   });
   lavalink.on('playerCreate', (player) => requestUpdate(player.guildId));
@@ -155,6 +159,7 @@ export function registerDiscordEvents() {
 
   client.on(Events.VoiceStateUpdate, async (oldState, newState) => {
     onVoiceStateUpdate(oldState, newState);
+    if (newState.id === client.user?.id) onBotVoiceState(oldState, newState);
     const guildId = newState.guild.id;
     if (!lavalink.getPlayer(guildId)) return;
     evaluateIdle(guildId);
