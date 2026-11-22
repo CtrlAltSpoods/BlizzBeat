@@ -68,28 +68,60 @@ async function applyTopic(channel, topic) {
   topics.set(channel.id, topic);
 }
 
+const handRaised = new Set(); // guildId: already asked a moderator, don't repeat every song
+
+/**
+ * Makes Blizzbeat a speaker on the Stage it's in. Runs on its own, so a problem starting the Stage or
+ * setting the topic can't stop it from speaking. Without moderator rights it raises its hand once.
+ */
+async function ensureSpeaker(channel) {
+  const guildId = channel.guild.id;
+  const me = channel.guild.members.me;
+  const state = me?.voice;
+  if (!state || state.channelId !== channel.id || !state.suppress) return;
+  const perms = channel.permissionsFor(me);
+  if (perms?.has(PermissionFlagsBits.MuteMembers)) {
+    try {
+      await state.setSuppressed(false);
+      handRaised.delete(guildId);
+      log.info(`[${guildId}] speaking on the Stage in #${channel.name}`);
+      return;
+    } catch (err) {
+      log.warn(`[${guildId}] couldn't become a speaker in #${channel.name}: ${err?.message ?? err}`);
+    }
+  } else {
+    log.info(`[${guildId}] can't become a speaker in #${channel.name} by itself (no Mute Members there); raising hand`);
+  }
+  if (handRaised.has(guildId)) return;
+  handRaised.add(guildId);
+  await state.setRequestToSpeak(true).catch((err) => log.debug(`[${guildId}] request to speak failed: ${err?.message ?? err}`));
+  notify(
+    guildId,
+    `🎙️ I've raised my hand in <#${channel.id}>: a Stage moderator needs to invite me to speak. To skip this next time, give Blizzbeat **Manage Channels**, **Mute Members** and **Move Members** in that Stage.`,
+  );
+}
+
 /** Blizzbeat's own voice state changed: on joining a Stage, go live and become a speaker. */
 export function onBotVoiceState(oldState, newState) {
   const guildId = newState.guild.id;
   const channel = stageChannel(guildId, newState.channelId);
   const joined = newState.channelId && newState.channelId !== oldState.channelId;
-  if (oldState.channelId && oldState.channelId !== newState.channelId) endStage(guildId, oldState.channelId);
+  if (oldState.channelId && oldState.channelId !== newState.channelId) {
+    handRaised.delete(guildId);
+    endStage(guildId, oldState.channelId);
+  }
   if (!channel || !joined) return;
+  log.info(`[${guildId}] joined the Stage #${channel.name} (moderator rights: ${isModerator(channel) ? 'yes' : 'no'})`);
   serial(guildId, async () => {
     const track = lavalink.getPlayer(guildId)?.queue.current;
-    await applyTopic(channel, track ? songTopic(track) : idleTopic(guildId));
-    const me = channel.guild.members.me;
-    if (!me.voice.suppress) return;
-    if (isModerator(channel)) {
-      await me.voice.setSuppressed(false);
-      log.info(`[${guildId}] speaking on the Stage in #${channel.name}`);
-    } else {
-      await me.voice.setRequestToSpeak(true).catch(() => null);
-      notify(
-        guildId,
-        `🎙️ I've raised my hand in <#${channel.id}>: a Stage moderator needs to invite me to speak. To skip this next time, give Blizzbeat **Manage Channels**, **Mute Members** and **Move Members** in that Stage.`,
-      );
+    // Speaker first, then the Stage/topic; each on its own so one failing doesn't block the other.
+    await ensureSpeaker(channel);
+    try {
+      await applyTopic(channel, track ? songTopic(track) : idleTopic(guildId));
+    } catch (err) {
+      log.warn(`[${guildId}] couldn't start the Stage or set its topic: ${err?.message ?? err}`);
     }
+    await ensureSpeaker(channel); // in case speaking is only allowed once the Stage is live
   });
 }
 
@@ -98,7 +130,13 @@ export function setStageTopic(player) {
   const channel = stageChannel(player?.guildId, player?.voiceChannelId);
   const track = player?.queue.current;
   if (!channel || !track) return;
-  serial(player.guildId, () => applyTopic(channel, songTopic(track)));
+  serial(player.guildId, async () => {
+    try {
+      await applyTopic(channel, songTopic(track));
+    } catch (err) {
+      log.warn(`[${player.guildId}] couldn't update the Stage topic: ${err?.message ?? err}`);
+    }
+  });
 }
 
 /** Queue ran out: show how to request a song. */
