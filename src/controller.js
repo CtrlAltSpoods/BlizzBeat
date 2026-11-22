@@ -152,7 +152,9 @@ function queueContent(player) {
   const maxLines = 15;
   for (let i = 0; i < tracks.length && lines.length < maxLines; i++) {
     const t = tracks[i];
-    const line = `\`${String(i + 1).padStart(2, ' ')}.\` ${escapeMd(truncate(t.info.title, 60))} · ${escapeMd(truncate(t.info.author, 30))} \`${trackDuration(t)}\``;
+    // Who asked for it (mentions don't ping: the player message allows none). Autoplay picks say so.
+    const who = t.requester?.id ? ` · <@${t.requester.id}>` : t.requester ? ' · 📻 Autoplay' : '';
+    const line = `\`${String(i + 1).padStart(2, ' ')}.\` ${escapeMd(truncate(t.info.title, 60))} · ${escapeMd(truncate(t.info.author, 30))} \`${trackDuration(t)}\`${who}`;
     if (length + line.length + 60 > 1900) break;
     lines.push(line);
     length += line.length + 1;
