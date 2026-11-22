@@ -56,7 +56,7 @@ export function missingChannelPerms(channel) {
 /* ------------------------------ Banner ------------------------------ */
 
 // Bump when the default banner changes, so channels showing an older default get the new one on startup.
-const DEFAULT_BANNER_VERSION = 2;
+const DEFAULT_BANNER_VERSION = 3;
 
 function defaultBanner() {
   const animated = join(config.assetsDir, 'banner.webp');

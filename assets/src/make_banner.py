@@ -90,6 +90,16 @@ def snowflake(cx, cy, R, stroke):
             f'<circle cx="{cx}" cy="{cy}" r="27" fill="{stroke}"/>')
 
 
+def note_svg(cx, cy, bob=0.0):
+    """The eighth note in the centre of the snowflake emblem (drawn for an emblem centred on cx, cy)."""
+    dx, dy = cx - 205, cy - 190 + bob
+    return (f'<g fill="#0b2446" transform="translate({dx:.2f} {dy:.2f})">'
+            '<ellipse cx="200" cy="199.5" rx="7.6" ry="5.7" transform="rotate(-22 200 199.5)"/>'
+            '<rect x="204.6" y="172" width="3.6" height="28" rx="1.2"/>'
+            '<path d="M206.4 172 C212 175.5 219.5 179 217.5 191.5 C216.5 185 212.5 182.5 206.4 181.5 Z"/>'
+            '</g>')
+
+
 def banner_svg(t=None):
     """The banner. t=None draws the still image; 0 <= t < 1 draws that moment of a seamless loop."""
     anim = t is not None
@@ -159,7 +169,7 @@ def banner_svg(t=None):
     add(f'<circle cx="{cx}" cy="{cy}" r="132" fill="none" stroke="#7fd6ff" stroke-width="1.5" opacity="0.25" '
         f'stroke-dasharray="{dash * 0.25:.3f} {dash * 0.75:.3f}" transform="rotate({turn:.2f} {cx} {cy})"/>')
     add(f'<g filter="url(#flakeGlow)">{snowflake(cx, cy, 92, "url(#ice)")}</g>')
-    add(f'<path d="M{cx - 8} {cy - 14} L{cx + 15} {cy} L{cx - 8} {cy + 14} Z" fill="#0b2446"/>')
+    add(note_svg(cx, cy, 2.2 * math.sin(TAU * 2 * t) if anim else 0))
 
     # Wordmark.
     tx = 380
@@ -236,12 +246,7 @@ def avatar_svg(t=None):
     # (Glow outside the rotation: blurring inside a rotated group smears it.)
     av.append(f'<g filter="url(#flakeGlow)"><g transform="rotate({spin:.2f} 205 190)">{snowflake(205, 190, 92, fill)}</g></g>')
     # Eighth note in the centre of the snowflake (stays upright); it bobs gently in the animation.
-    bob = 2.2 * math.sin(TAU * 2 * t) if anim else 0
-    av.append(f'<g fill="#0b2446" transform="translate(0 {bob:.2f})">'
-              '<ellipse cx="200" cy="199.5" rx="7.6" ry="5.7" transform="rotate(-22 200 199.5)"/>'
-              '<rect x="204.6" y="172" width="3.6" height="28" rx="1.2"/>'
-              '<path d="M206.4 172 C212 175.5 219.5 179 217.5 191.5 C216.5 185 212.5 182.5 206.4 181.5 Z"/>'
-              '</g>')
+    av.append(note_svg(205, 190, 2.2 * math.sin(TAU * 2 * t) if anim else 0))
     av.append('</g></svg>')
     return '\n'.join(av)
 
