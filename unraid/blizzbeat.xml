@@ -1,0 +1,74 @@
+<?xml version="1.0"?>
+<Container version="2">
+  <Name>Blizzbeat</Name>
+  <Repository>ghcr.io/ctrlaltspoods/blizzbeat:latest</Repository>
+  <Registry>https://github.com/CtrlAltSpoods/Blizzbeat/pkgs/container/blizzbeat</Registry>
+  <Network>bridge</Network>
+  <MyIP/>
+  <Shell>bash</Shell>
+  <Privileged>false</Privileged>
+  <Support>https://github.com/CtrlAltSpoods/Blizzbeat/issues</Support>
+  <Project>https://github.com/CtrlAltSpoods/Blizzbeat</Project>
+  <Overview>Blizzbeat is a Discord music bot with Lavalink built in. It gets its own channel with an animated banner and one live player (now playing, progress, queue, buttons) that is edited in place. People type a song name or link, or drop an audio file, to play it. Slash commands cover admin settings (/config) and playback (/play, /queue, /favourites ...).[br][br]Plays YouTube (Lavalink plugin or yt-dlp), SoundCloud, Spotify (matched on YouTube), Bandcamp, Twitch, uploaded files and anything yt-dlp supports. Lavalink and its plugins update themselves on launch and daily.[br][br]Only the Discord bot token is required. Create the bot at https://discord.com/developers/applications, turn on the Message Content intent, then invite it with the link printed in the container log.</Overview>
+  <Category>MediaApp:Music Tools:</Category>
+  <WebUI/>
+  <TemplateURL>https://raw.githubusercontent.com/CtrlAltSpoods/Blizzbeat/main/unraid/blizzbeat.xml</TemplateURL>
+  <Icon>https://raw.githubusercontent.com/CtrlAltSpoods/Blizzbeat/main/assets/avatar.png</Icon>
+  <ExtraParams>--stop-timeout 20 --log-opt max-size=10m --log-opt max-file=3</ExtraParams>
+  <PostArgs/>
+  <CPUset/>
+  <DateInstalled/>
+  <DonateText/>
+  <DonateLink/>
+  <Requires>A Discord bot token (Developer Portal: Bot, Reset Token) with the Message Content intent turned on.</Requires>
+
+  <!-- ===== Required ===== -->
+  <Config Name="Discord bot token" Target="DISCORD_TOKEN" Default="" Mode="" Description="REQUIRED. Bot token from https://discord.com/developers/applications (Bot, Reset Token)." Type="Variable" Display="always" Required="true" Mask="true"/>
+  <Config Name="App data" Target="/data" Default="/mnt/user/appdata/blizzbeat/data" Mode="rw" Description="REQUIRED. Settings database, favourites, YouTube sign-in, custom banners, auto-updates and uploaded-file copies." Type="Path" Display="always" Required="true" Mask="false">/mnt/user/appdata/blizzbeat/data</Config>
+  <Config Name="Lavalink plugins" Target="/opt/lavalink/plugins" Default="/mnt/user/appdata/blizzbeat/plugins" Mode="rw" Description="REQUIRED. Cache for Lavalink plugins (YouTube, LavaSrc) so they aren't downloaded on every start." Type="Path" Display="always" Required="true" Mask="false">/mnt/user/appdata/blizzbeat/plugins</Config>
+  <Config Name="PUID" Target="PUID" Default="99" Mode="" Description="REQUIRED. User the bot runs as (owns the app data). Unraid: 99 (nobody)." Type="Variable" Display="always" Required="true" Mask="false">99</Config>
+  <Config Name="PGID" Target="PGID" Default="100" Mode="" Description="REQUIRED. Group the bot runs as. Unraid: 100 (users)." Type="Variable" Display="always" Required="true" Mask="false">100</Config>
+
+  <!-- ===== Common options ===== -->
+  <Config Name="Type-to-queue (Message Content)" Target="ENABLE_MESSAGE_CONTENT" Default="true|false" Mode="" Description="Optional. Typing songs and dropping files in the Blizzbeat channel. Needs the Message Content intent turned on in the Developer Portal; false = /play only." Type="Variable" Display="always" Required="false" Mask="false">true</Config>
+  <Config Name="Spotify client ID" Target="SPOTIFY_CLIENT_ID" Default="" Mode="" Description="Optional. Turns on Spotify links and search (songs play from YouTube). Create an app at https://developer.spotify.com/dashboard." Type="Variable" Display="always" Required="false" Mask="false"/>
+  <Config Name="Spotify client secret" Target="SPOTIFY_CLIENT_SECRET" Default="" Mode="" Description="Optional. Secret of the same Spotify app." Type="Variable" Display="always" Required="false" Mask="true"/>
+  <Config Name="Spotify country" Target="SPOTIFY_COUNTRY_CODE" Default="US" Mode="" Description="Optional. Country for Spotify search results (two letters, e.g. AU, US)." Type="Variable" Display="always" Required="false" Mask="false">US</Config>
+  <Config Name="YouTube backend" Target="YOUTUBE_BACKEND" Default="plugin|ytdlp" Mode="" Description="Optional. How YouTube is played: plugin (Lavalink's YouTube plugin, seekable) or ytdlp. /config youtube in Discord overrides this." Type="Variable" Display="always" Required="false" Mask="false">plugin</Config>
+  <Config Name="Auto-update" Target="AUTO_UPDATE" Default="true|false" Mode="" Description="Optional. On launch and daily, move to newer Lavalink, YouTube plugin, LavaSrc and yt-dlp releases (rolled back if they fail)." Type="Variable" Display="always" Required="false" Mask="false">true</Config>
+  <Config Name="Animated banner" Target="ANIMATED_BANNER" Default="true|false" Mode="" Description="Optional. Use the animated default banner in the Blizzbeat channel; false = still image." Type="Variable" Display="always" Required="false" Mask="false">true</Config>
+
+  <!-- ===== Defaults for new servers (each server can change them with /config) ===== -->
+  <Config Name="Default volume" Target="DEFAULT_VOLUME" Default="100" Mode="" Description="Optional. Starting volume in %. 100 keeps original audio quality." Type="Variable" Display="advanced" Required="false" Mask="false">100</Config>
+  <Config Name="Max volume" Target="MAX_VOLUME" Default="150" Mode="" Description="Optional. Highest volume people can set, in %." Type="Variable" Display="advanced" Required="false" Mask="false">150</Config>
+  <Config Name="Queue limit" Target="DEFAULT_MAX_QUEUE" Default="500" Mode="" Description="Optional. Most songs in a queue." Type="Variable" Display="advanced" Required="false" Mask="false">500</Config>
+  <Config Name="Auto-leave (minutes)" Target="DEFAULT_AUTO_LEAVE_MINUTES" Default="5" Mode="" Description="Optional. Leave voice after this many minutes of nothing playing or nobody listening." Type="Variable" Display="advanced" Required="false" Mask="false">5</Config>
+  <Config Name="Search source" Target="DEFAULT_SEARCH_SOURCE" Default="ytmsearch|ytsearch|scsearch|spsearch" Mode="" Description="Optional. Where song names are searched: ytmsearch (YouTube Music), ytsearch (YouTube), scsearch (SoundCloud), spsearch (Spotify)." Type="Variable" Display="advanced" Required="false" Mask="false">ytmsearch</Config>
+  <Config Name="Embed colour" Target="DEFAULT_EMBED_COLOR" Default="5BC0F8" Mode="" Description="Optional. Player colour as a hex code without #." Type="Variable" Display="advanced" Required="false" Mask="false">5BC0F8</Config>
+  <Config Name="Request cooldown (s)" Target="DEFAULT_REQUEST_COOLDOWN" Default="3" Mode="" Description="Optional. Seconds between song requests per person (0 = off). Admins are never limited." Type="Variable" Display="advanced" Required="false" Mask="false">3</Config>
+  <Config Name="Control cooldown (s)" Target="DEFAULT_CONTROL_COOLDOWN" Default="0" Mode="" Description="Optional. Seconds between button presses per person (0 = off)." Type="Variable" Display="advanced" Required="false" Mask="false">0</Config>
+
+  <!-- ===== Advanced ===== -->
+  <Config Name="Dev server ID" Target="DEV_GUILD_ID" Default="" Mode="" Description="Optional. Register slash commands to this one server instantly (for testing). Empty = all servers." Type="Variable" Display="advanced" Required="false" Mask="false"/>
+  <Config Name="Progress refresh (s)" Target="PROGRESS_UPDATE_SECONDS" Default="10" Mode="" Description="Optional. How often the progress bar on the player refreshes (5-120)." Type="Variable" Display="advanced" Required="false" Mask="false">10</Config>
+  <Config Name="Resume queues up to (minutes)" Target="RESTORE_MAX_AGE_MINUTES" Default="60" Mode="" Description="Optional. After a restart, resume queues saved at most this long ago (0 = no limit). 24/7 servers always resume." Type="Variable" Display="advanced" Required="false" Mask="false">60</Config>
+  <Config Name="Audio buffer (ms)" Target="LAVALINK_FRAME_BUFFER_MS" Default="1000" Mode="" Description="Optional. Decoded audio Lavalink keeps ready (200-30000). /config buffer in Discord overrides this." Type="Variable" Display="advanced" Required="false" Mask="false">1000</Config>
+  <Config Name="yt-dlp Opus bitrate" Target="MEDIA_OPUS_BITRATE" Default="256k" Mode="" Description="Optional. Bitrate for yt-dlp songs whose audio isn't Opus already (Opus is passed through untouched)." Type="Variable" Display="advanced" Required="false" Mask="false">256k</Config>
+  <Config Name="Java options" Target="JAVA_OPTS" Default="-Xms128m -Xmx512m" Mode="" Description="Optional. Memory for the built-in Lavalink." Type="Variable" Display="advanced" Required="false" Mask="false">-Xms128m -Xmx512m</Config>
+  <Config Name="Log level" Target="LOG_LEVEL" Default="info|debug|warn|error" Mode="" Description="Optional. How much the bot writes to the container log." Type="Variable" Display="advanced" Required="false" Mask="false">info</Config>
+  <Config Name="Lavalink password" Target="LAVALINK_PASSWORD" Default="" Mode="" Description="Optional. Lavalink is only reachable inside the container; a random password is generated when empty." Type="Variable" Display="advanced" Required="false" Mask="true"/>
+
+  <!-- ===== YouTube (advanced) ===== -->
+  <Config Name="YouTube plugin version" Target="YOUTUBE_PLUGIN_VERSION" Default="" Mode="" Description="Optional. Pin a youtube-source release (e.g. 1.19.0) or 40-character commit. Empty = tested default plus auto-updates." Type="Variable" Display="advanced" Required="false" Mask="false"/>
+  <Config Name="LavaSrc version" Target="LAVASRC_VERSION" Default="" Mode="" Description="Optional. Pin a LavaSrc release (Spotify support). Empty = default plus auto-updates." Type="Variable" Display="advanced" Required="false" Mask="false"/>
+  <Config Name="YouTube clients" Target="YOUTUBE_CLIENTS" Default="MUSIC,TV,ANDROID_VR,WEB,WEBEMBEDDED" Mode="" Description="Optional. YouTube plugin clients, tried in order. TV is always included (it uses the signed-in account)." Type="Variable" Display="advanced" Required="false" Mask="false">MUSIC,TV,ANDROID_VR,WEB,WEBEMBEDDED</Config>
+  <Config Name="Built-in cipher (yt-cipher)" Target="YOUTUBE_BUILTIN_CIPHER" Default="true|false" Mode="" Description="Optional. Run yt-cipher inside the container to decode YouTube stream signatures." Type="Variable" Display="advanced" Required="false" Mask="false">true</Config>
+  <Config Name="yt-cipher player variant" Target="YTCIPHER_PLAYER_VARIANT" Default="IAS" Mode="" Description="Optional. YouTube player variant yt-cipher decodes against." Type="Variable" Display="advanced" Required="false" Mask="false">IAS</Config>
+  <Config Name="yt-cipher threads" Target="YTCIPHER_THREADS" Default="2" Mode="" Description="Optional. Worker threads for yt-cipher." Type="Variable" Display="advanced" Required="false" Mask="false">2</Config>
+  <Config Name="Remote cipher URL" Target="YOUTUBE_REMOTE_CIPHER_URL" Default="" Mode="" Description="Optional. Use your own cipher server instead of the built-in one." Type="Variable" Display="advanced" Required="false" Mask="false"/>
+  <Config Name="Remote cipher password" Target="YOUTUBE_REMOTE_CIPHER_PASSWORD" Default="" Mode="" Description="Optional. Password for the remote cipher server." Type="Variable" Display="advanced" Required="false" Mask="true"/>
+  <Config Name="YouTube OAuth refresh token" Target="YOUTUBE_OAUTH_REFRESH_TOKEN" Default="" Mode="" Description="Optional. Sign the YouTube plugin in with an existing refresh token. Easier: /config youtube login in Discord." Type="Variable" Display="advanced" Required="false" Mask="true"/>
+  <Config Name="YouTube OAuth log sign-in" Target="YOUTUBE_OAUTH_ENABLED" Default="false|true" Mode="" Description="Optional. true without a refresh token makes the plugin print its own sign-in code in the log." Type="Variable" Display="advanced" Required="false" Mask="false">false</Config>
+  <Config Name="YouTube PO token" Target="YOUTUBE_PO_TOKEN" Default="" Mode="" Description="Optional. poToken for the plugin's WEB client (needs visitor data too)." Type="Variable" Display="advanced" Required="false" Mask="true"/>
+  <Config Name="YouTube visitor data" Target="YOUTUBE_VISITOR_DATA" Default="" Mode="" Description="Optional. visitorData that goes with the PO token." Type="Variable" Display="advanced" Required="false" Mask="true"/>
+</Container>

@@ -62,7 +62,16 @@ echo <TOKEN> | docker login ghcr.io -u <your-github-username> --password-stdin
 
 ### Unraid
 
-**Docker** tab → **Add Container** (turn on **Advanced View**), then:
+**With the template (easiest).** In the Unraid terminal, run:
+
+```bash
+wget -O /boot/config/plugins/dockerMan/templates-user/my-Blizzbeat.xml \
+  https://raw.githubusercontent.com/CtrlAltSpoods/Blizzbeat/main/unraid/blizzbeat.xml
+```
+
+Then **Docker** tab → **Add Container** → pick **Blizzbeat** from the Template list, paste your bot token and click **Apply**. Required fields are marked; everything else has a working default, and **Show more settings** reveals the advanced ones. The template is in [`unraid/blizzbeat.xml`](unraid/blizzbeat.xml).
+
+**By hand.** **Docker** tab → **Add Container** (turn on **Advanced View**), then:
 
 | Field | Value |
 |---|---|
