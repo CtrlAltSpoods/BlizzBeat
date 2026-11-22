@@ -22,11 +22,16 @@ import { dropSession, scheduleSave } from './persistence.js';
 import { hasCookies, isYoutubeBlock, youtubeBackend } from './youtube.js';
 import { clearVoiceStatus, setVoiceStatus, updatePresence } from './status.js';
 import { looksLikeMedia } from './uploads.js';
+import { attachLiveKeeper, liveWatched } from './live.js';
 import { lastMediaError } from './media.js';
 import { escapeMd, mediaInfo, truncate } from './util/format.js';
 
 export function registerLavalinkEvents() {
   playerHooks.autoplay = autoplayNext;
+  attachLiveKeeper(lavalink, {
+    onGiveUp: (guildId, title) =>
+      flash(guildId, `📡 **${escapeMd(truncate(title ?? 'The live stream', 80))}** keeps dropping out, so I've stopped reconnecting. Request it again to retry.`, 60_000),
+  });
   playerHooks.onAutoplayPaused = (guildId) =>
     flash(guildId, '📻 Autoplay stopped because the last few songs failed to play. Request a song to carry on.', 30_000);
   queueHooks.onChange = (guildId) => {
@@ -81,6 +86,7 @@ export function registerLavalinkEvents() {
 
   const lastBlockHint = new Map();
   lavalink.on('trackError', (player, track, payload) => {
+    if (liveWatched(player.guildId, track)) return; // the live stream reconnects by itself
     // Songs played through the media server fail with a bare HTTP error; use yt-dlp's real reason instead.
     const mediaReason = lastMediaError(mediaInfo(track?.info?.uri)?.page);
     let reason = mediaReason ?? String(payload?.exception?.message ?? payload?.message ?? 'unknown error');
@@ -129,6 +135,7 @@ export function registerLavalinkEvents() {
   });
 
   lavalink.on('trackStuck', (player, track) => {
+    if (liveWatched(player.guildId, track)) return; // the live stream reconnects by itself
     log.warn(`[${player.guildId}] track stuck: ${track?.info?.title}`);
     noteTrackFailure(player.guildId);
     flash(player.guildId, `⚠️ **${escapeMd(truncate(track?.info?.title ?? 'That song', 80))}** got stuck, skipping.`, 8000);

@@ -44,9 +44,10 @@ function getSecret() {
 const sign = (page) => createHmac('sha256', getSecret()).update(page).digest('base64url');
 
 /** Lavalink-facing URL for a page. Signed (so only the bot can create them) and stateless (survives restarts). */
-export function mediaUrl(page, durationMs = 0) {
+export function mediaUrl(page, durationMs = 0, live = false) {
   const u = Buffer.from(page).toString('base64url');
-  return `http://127.0.0.1:${MEDIA_PORT}/media?u=${u}&d=${Math.max(0, Math.round(durationMs || 0))}&s=${sign(page)}`;
+  const d = Math.max(0, Math.round(durationMs || 0));
+  return `http://127.0.0.1:${MEDIA_PORT}/media?u=${u}&d=${d}${live ? '&l=1' : ''}&s=${sign(page)}`;
 }
 
 function verify(page, sig) {

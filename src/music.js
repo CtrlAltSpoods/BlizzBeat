@@ -15,6 +15,7 @@ import {
 import { log } from './logger.js';
 import { clearVoiceStatus } from './status.js';
 import { assertPublicUrl, isNativeLink, lastMediaError, mediaUrl, resolveLink, searchYoutube, warmMedia } from './media.js';
+import { forgetLive, liveResumePending } from './live.js';
 import { saveAttachment, UPLOAD_PREFIX, UploadError, uploadNameOf } from './uploads.js';
 import { resolveSearchSource, youtubeBackend } from './youtube.js';
 import { displayUri, escapeMd, formatDuration, isUrl, mediaInfo, trackDuration, trackLength, truncate } from './util/format.js';
@@ -96,6 +97,7 @@ export function touchCooldown(member, kind) {
 
 /** Leaves voice, clearing the voice channel status first. */
 export async function destroyPlayer(player, reason) {
+  forgetLive(player.guildId);
   await clearVoiceStatus(player.guildId, player.voiceChannelId).catch(() => null);
   await player.destroy(reason);
 }
@@ -195,7 +197,7 @@ function toUnresolved(it, requester) {
       title: it.title,
       author: it.author,
       duration: it.durationMs,
-      uri: mediaUrl(it.page, it.durationMs),
+      uri: mediaUrl(it.page, it.durationMs, it.isLive),
       artworkUrl: it.artworkUrl,
       // Not a searchable source on purpose: if the media server can't serve the song, lavalink-client would
       // otherwise quietly swap in a search result for the same title from another source.
@@ -411,6 +413,7 @@ async function enqueue({ guild, member, player, settings, next, tracks, groupNam
   tracks = tracks.slice(0, allowed);
 
   const startNow = !player.queue.current;
+  if (startNow) forgetLive(guild.id); // a new request wins over a live stream waiting to reconnect
   if (startNow || next || player.queue.tracks.length === 0) warmTrack(tracks[0]);
   await player.queue.add(tracks, next && !startNow ? 0 : undefined);
   if (startNow) {
@@ -506,7 +509,7 @@ export function favouriteFromTrack(track) {
   if (!isUrl(link)) throw new UserError("This song doesn't have a link, so it can't be saved.");
   // Songs from the media server always look like streams to Lavalink; their real length is in the link.
   const media = mediaInfo(track.info.uri);
-  const live = media ? !(media.durationMs > 0) : Boolean(track.info.isStream);
+  const live = media ? media.live || !(media.durationMs > 0) : Boolean(track.info.isStream);
   return {
     key: ytId ? `yt:${ytId}` : `u:${createHash('sha1').update(link).digest('hex').slice(0, 32)}`,
     data: {
@@ -621,6 +624,7 @@ export async function resume(player) {
 export async function skip(player, count = 1) {
   const current = player.queue.current;
   if (!current) throw new UserError('Nothing is playing.');
+  forgetLive(player.guildId);
   if (!player.queue.tracks.length) {
     const autoplay = getSettings(player.guildId).autoplay;
     if (player.repeatMode === 'queue' || autoplay) {
@@ -637,6 +641,7 @@ export async function skip(player, count = 1) {
 }
 
 export async function stop(player) {
+  forgetLive(player.guildId);
   await player.setRepeatMode('off');
   await player.stopPlaying(true, false);
   evaluateIdle(player.guildId);
@@ -644,6 +649,7 @@ export async function stop(player) {
 }
 
 export async function previous(player) {
+  forgetLive(player.guildId);
   const prev = await player.queue.shiftPrevious();
   if (!prev) throw new UserError('There is no previous song.');
   if (player.queue.current) await player.queue.add(player.queue.current, 0);
@@ -941,6 +947,8 @@ export async function autoplayNext(player, lastTrack) {
   if (!settings.autoplay || !lastTrack?.info) return;
   if (humansIn(playerChannel(player)) === 0) return; // nobody is listening
 
+  // A live stream that dropped is about to reconnect: don't pick something else.
+  if (liveResumePending(player.guildId)) return;
   if (failingTooOften(player.guildId)) {
     log.info(`[${player.guildId}] autoplay paused: the last few songs all failed to play`);
     playerHooks.onAutoplayPaused?.(player.guildId);

@@ -50,7 +50,11 @@ export function mediaInfo(uri) {
   if (!/^http:\/\/127\.0\.0\.1:\d+\/media\?/.test(String(uri ?? ''))) return null;
   try {
     const u = new URL(uri);
-    return { page: Buffer.from(u.searchParams.get('u') ?? '', 'base64url').toString(), durationMs: Number(u.searchParams.get('d')) || 0 };
+    return {
+      page: Buffer.from(u.searchParams.get('u') ?? '', 'base64url').toString(),
+      durationMs: Number(u.searchParams.get('d')) || 0,
+      live: u.searchParams.get('l') === '1',
+    };
   } catch {
     return null;
   }
