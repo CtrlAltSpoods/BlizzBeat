@@ -272,6 +272,13 @@ function noteError(page, message) {
   if (errors.size > 200) errors.delete(errors.keys().next().value);
 }
 
+/** The media server's most recent failure, if it was within `withinMs` (for errors that arrive without a track). */
+export function latestMediaError(withinMs = 15_000) {
+  let latest = null;
+  for (const e of errors.values()) if (!latest || e.at > latest.at) latest = e;
+  return latest && Date.now() - latest.at < withinMs ? latest.message : null;
+}
+
 /** Why the media server last failed to stream a page (if it did in the last few minutes). */
 export function lastMediaError(page) {
   const e = errors.get(page);

@@ -355,7 +355,15 @@ for (const [label, query] of probes) {
   try {
     const db = await import('../src/db.js');
     db.clearFavourites(member.id);
-    const current = lavalink.getPlayer('200')?.queue.current;
+    let current = lavalink.getPlayer('200')?.queue.current;
+    if (!current) {
+      // YouTube refusing the CI network can leave nothing playing here; play the test MP3 so the
+      // favourites checks still run.
+      const i = fakeInteraction('play', { song: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3' });
+      await withTimeout(handleInteraction(i), 60_000, 'play for favourites');
+      for (let n = 0; n < 40 && !lavalink.getPlayer('200')?.queue.current; n++) await sleep(250);
+      current = lavalink.getPlayer('200')?.queue.current;
+    }
     const saved = await run(heart(), '❤️');
     const favs = db.listFavourites(member.id);
     (favs.length === 1 && saved.includes('Saved') ? ok : bad)('❤️ saves the playing song', `${saved.slice(0, 120)} (now: ${current?.info?.title})`);

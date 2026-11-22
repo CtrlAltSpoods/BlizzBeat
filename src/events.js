@@ -25,7 +25,7 @@ import { looksLikeMedia } from './uploads.js';
 import { attachLiveKeeper, liveWatched } from './live.js';
 import { onVoiceStateUpdate } from './voiceAccess.js';
 import { attachStage, idleStageTopic, onBotVoiceState, setStageTopic } from './stage.js';
-import { lastMediaError } from './media.js';
+import { lastMediaError, latestMediaError } from './media.js';
 import { escapeMd, mediaInfo, truncate } from './util/format.js';
 
 export function registerLavalinkEvents() {
@@ -93,7 +93,8 @@ export function registerLavalinkEvents() {
   lavalink.on('trackError', (player, track, payload) => {
     if (liveWatched(player.guildId, track)) return; // the live stream reconnects by itself
     // Songs played through the media server fail with a bare HTTP error; use yt-dlp's real reason instead.
-    const mediaReason = lastMediaError(mediaInfo(track?.info?.uri)?.page);
+    // (lavalink-client sometimes reports a song that couldn't be loaded at all without the song itself.)
+    const mediaReason = track ? lastMediaError(mediaInfo(track?.info?.uri)?.page) : latestMediaError();
     let reason = mediaReason ?? String(payload?.exception?.message ?? payload?.message ?? 'unknown error');
     // lavalink-client's wording when a media-server song couldn't be loaded at all.
     if (/SearchQuerySource|No closest Track/i.test(reason)) reason = 'the audio could not be loaded (the site refused it or took too long)';
