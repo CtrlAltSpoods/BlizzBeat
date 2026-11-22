@@ -309,3 +309,9 @@ You need Node 22.13 or newer and a Lavalink 4 server you can reach.
 npm install
 DISCORD_TOKEN=... LAVALINK_HOST=localhost LAVALINK_PASSWORD=youshallnotpass DATA_DIR=./data npm start
 ```
+
+## License
+
+Blizzbeat is released under the [MIT License](LICENSE). The Docker image also includes other software
+(Lavalink, its plugins, yt-dlp, FFmpeg and more) under their own licenses; see
+[THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).
