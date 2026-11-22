@@ -55,7 +55,7 @@ export const config = {
     maxVolume: int('MAX_VOLUME', 150, { min: 1, max: 200 }),
     maxQueue: int('DEFAULT_MAX_QUEUE', 500, { min: 1, max: 5000 }),
     autoLeaveMinutes: int('DEFAULT_AUTO_LEAVE_MINUTES', 5, { min: 0, max: 1440 }),
-    searchSource: str('DEFAULT_SEARCH_SOURCE', 'ytmsearch'),
+    searchSource: str('DEFAULT_SEARCH_SOURCE', 'ytsearch'),
     embedColor: hexColor(str('DEFAULT_EMBED_COLOR', '5BC0F8')),
     requestCooldown: int('DEFAULT_REQUEST_COOLDOWN', 3, { min: 0, max: 600 }),
     controlCooldown: int('DEFAULT_CONTROL_COOLDOWN', 0, { min: 0, max: 600 }),

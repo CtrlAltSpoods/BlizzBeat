@@ -84,7 +84,7 @@ export function defaultSettings() {
     requestCooldown: d.requestCooldown,
     controlCooldown: d.controlCooldown,
 
-    settingsVersion: 2,
+    settingsVersion: 3,
   };
 }
 
@@ -106,6 +106,12 @@ export function getSettings(guildId) {
   if (row && !stored.settingsVersion) {
     if (stored.defaultVolume === 50) settings.defaultVolume = Math.min(100, settings.maxVolume);
     settings.settingsVersion = 2;
+    upsertStmt.run(guildId, JSON.stringify(settings), Date.now());
+  }
+  // v3: song names are searched on plain YouTube by default (was YouTube Music).
+  if (row && settings.settingsVersion < 3) {
+    if (settings.searchSource === 'ytmsearch') settings.searchSource = 'ytsearch';
+    settings.settingsVersion = 3;
     upsertStmt.run(guildId, JSON.stringify(settings), Date.now());
   }
   cache.set(guildId, settings);

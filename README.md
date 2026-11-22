@@ -154,7 +154,7 @@ Commands used inside the Blizzbeat channel reply privately so the channel stays 
 | `/config youtube` | Sign in to YouTube with a spare Google account (fixes "confirm you're not a bot"), check status, sign out, or switch YouTube between the Lavalink plugin and yt-dlp |
 | `/config buffer [seconds]` | Audio buffer for all servers (default 1 s, 0.2–30). Bigger rides out network hiccups; smaller reacts faster. Lavalink restarts once nothing is playing. |
 | `/config voice-status` | Show the current song as the voice channel's status |
-| `/config search-source` | Where typed song names are searched: YouTube Music, YouTube, SoundCloud or Spotify |
+| `/config search-source` | Where typed song names are searched: YouTube (default), YouTube Music, SoundCloud or Spotify |
 | `/config banner [image]` | Upload a custom banner (PNG, JPG, or animated GIF/WebP), or leave empty to restore the default. The banner message is edited, not re-posted. |
 | `/config color` | Accent colour of the player embed |
 | `/config blocklist add/remove/list` | Block people from using Blizzbeat |
@@ -170,7 +170,7 @@ Blizzbeat plays YouTube's Opus audio (about 130–160 kbps) straight through to 
 
 Blizzbeat also tries to get you the best recording:
 - **YouTube's best stream.** The YouTube plugin picks the best audio format YouTube offers: Opus, without dynamic-range compression, at the highest bitrate.
-- **Official audio over music videos.** Typed searches use YouTube Music by default, Spotify links are matched on YouTube Music first, and autoplay swaps music videos for their official audio uploads when the length matches. That means no video intros or outros, and the studio master.
+- **Official audio over music videos.** Typed searches use YouTube by default (switch to YouTube Music with `/config search-source`), Spotify links are matched on YouTube Music first, and autoplay swaps music videos for their official audio uploads when the length matches. That means no video intros or outros, and the studio master.
 - **An adjustable audio buffer** (1 second by default). `/config buffer` changes it for all servers: raise it if songs stutter or say "track stuck" on a slow connection; keep it low so volume, effects and skips react quickly.
 
 At any other volume, or with an effect on, Lavalink has to decode and re-encode the audio, which loses some quality. The player shows **🎧 original** next to the volume when you're getting the untouched stream. To make it quieter without losing quality, use Discord's own slider: right-click Blizzbeat → **User Volume**.
@@ -235,7 +235,7 @@ Everything is documented in [`.env.example`](.env.example). The main settings ar
 | `YOUTUBE_PLUGIN_VERSION` | tested build | Leave empty for the default (a youtube-source build with the TV client fix). Set a newer release when one ships. |
 | `YOUTUBE_BACKEND` | `plugin` | `plugin` or `ytdlp` (also switchable with `/config youtube`) |
 | `YOUTUBE_BUILTIN_CIPHER` | `true` | Runs yt-cipher inside the container to decode YouTube stream signatures |
-| `DEFAULT_VOLUME`, `MAX_VOLUME`, `DEFAULT_MAX_QUEUE`, `DEFAULT_AUTO_LEAVE_MINUTES`, `DEFAULT_SEARCH_SOURCE` | | Starting values for new servers |
+| `DEFAULT_VOLUME`, `MAX_VOLUME`, `DEFAULT_MAX_QUEUE`, `DEFAULT_AUTO_LEAVE_MINUTES`, `DEFAULT_SEARCH_SOURCE` (`ytsearch`) | | Starting values for new servers |
 | `PROGRESS_UPDATE_SECONDS` | `10` | How often the progress bar refreshes |
 | `DEFAULT_REQUEST_COOLDOWN`, `DEFAULT_CONTROL_COOLDOWN` | `3`, `0` | Starting cooldowns in seconds |
 | `LAVALINK_FRAME_BUFFER_MS` | `1000` | Starting audio buffer (overridden by `/config buffer`) |
