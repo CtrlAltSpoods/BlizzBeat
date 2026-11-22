@@ -2,7 +2,7 @@
 
 ![Blizzbeat banner](assets/banner.webp)
 
-A self-hosted Discord music bot with a dedicated player channel, in the spirit of the old music-request-channel bots. One Docker container runs both the bot and its own [Lavalink](https://github.com/lavalink-devs/Lavalink) audio server. You don't need to host anything else.
+A self-hosted Discord music bot with a dedicated player channel: a replacement for Hydra, in the spirit of its song-request channel. One Docker container runs both the bot and its own [Lavalink](https://github.com/lavalink-devs/Lavalink) audio server. You don't need to host anything else.
 
 ## What it does
 

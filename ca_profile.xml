@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <CommunityApplications>
-  <Profile>Blizzbeat is a self-hosted Discord music bot (a Nightbot replacement) with Lavalink built in, packaged as one container.
+  <Profile>Blizzbeat is a self-hosted Discord music bot (a Hydra replacement) with Lavalink built in, packaged as one container.
 
 What you get:
 - Its own channel with an animated banner and one live player (now playing, progress, Up Next, buttons) that is edited in place, never spammed.
