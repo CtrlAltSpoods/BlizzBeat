@@ -26,6 +26,7 @@ import {
   youtubeStatus,
 } from '../youtube.js';
 import { parseHexColor } from '../util/format.js';
+import { disableVoiceAccess, enableVoiceAccess, GRACE_MS, voiceAccessProblem } from '../voiceAccess.js';
 
 const admin = (b) => b.setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild).setContexts(InteractionContextType.Guild);
 
@@ -203,6 +204,12 @@ export const adminCommands = [
       )
       .addSubcommand((s) =>
         s
+          .setName('voice-access')
+          .setDescription('Only show the Blizzbeat channel to people in a voice channel')
+          .addBooleanOption((o) => o.setName('enabled').setDescription('Voice-only access on/off').setRequired(true)),
+      )
+      .addSubcommand((s) =>
+        s
           .setName('voice-status')
           .setDescription("Show the current song as the voice channel's status")
           .addBooleanOption((o) => o.setName('enabled').setDescription('Voice channel status on/off').setRequired(true)),
@@ -254,6 +261,8 @@ async function runSetup(interaction) {
   const sub = interaction.options.getSubcommand();
 
   if (sub === 'remove') {
+    // The channel is kept, so make it visible again and clear Blizzbeat's entries.
+    if (getSettings(guild.id).voiceAccess) await disableVoiceAccess(guild).catch(() => null);
     await removeSetup(guild);
     return { content: '🧹 Removed the Blizzbeat player. The channel itself was left alone.' };
   }
@@ -299,8 +308,18 @@ async function runSetup(interaction) {
     throw new UserError(`I'm missing these permissions in ${channel}: **${missing.join(', ')}**.`);
   }
 
+  const prev = getSettings(guild.id);
+  const voiceOnly = prev.voiceAccess;
+  if (voiceOnly && prev.channelId && prev.channelId !== channel.id) {
+    // Moving to another channel: un-hide the old one and clear its entries first.
+    await disableVoiceAccess(guild, { keepSetting: true }).catch(() => null);
+  }
   await setupChannel(guild, channel);
   const notes = [];
+  if (voiceOnly) {
+    const problem = await enableVoiceAccess(guild);
+    if (problem) notes.push(`⚠️ Voice-only access couldn't be applied: ${problem}`);
+  }
   if (!config.messageContent) {
     notes.push('⚠️ Typing song names in the channel is disabled (`ENABLE_MESSAGE_CONTENT=false`). Members can still use `/play`.');
   }
@@ -333,6 +352,7 @@ function settingsEmbed(guildId) {
       { name: 'Autoplay', value: s.autoplay ? 'On' : 'Off', inline: true },
       { name: 'Vote-skip', value: s.voteSkip ? `On (${s.voteSkipPercent}%)` : 'Off', inline: true },
       { name: 'Voice status', value: s.voiceStatus ? 'On' : 'Off', inline: true },
+      { name: 'Voice-only access', value: s.voiceAccess ? `On (${s.voiceAccessUsers.length} in voice)` : 'Off', inline: true },
       {
         name: 'Cooldowns',
         value: `Requests: ${s.requestCooldown ? `${s.requestCooldown}s` : 'off'} · Controls: ${s.controlCooldown ? `${s.controlCooldown}s` : 'off'}`,
@@ -599,6 +619,23 @@ async function runConfig(interaction) {
       reply = `⏱️ Cooldowns: song requests ${fmt(next.requestCooldown)}, controls ${fmt(next.controlCooldown)}. Admins are never limited.`;
       break;
     }
+    case 'voice-access': {
+      const on = options.getBoolean('enabled', true);
+      if (on) {
+        const problem = await enableVoiceAccess(guild);
+        if (problem) throw new UserError(problem);
+        reply = `🔒 <#${s.channelId}> is now hidden from everyone except people in a voice channel (and admins). People lose access ${GRACE_MS / 1000} seconds after leaving voice.`;
+      } else {
+        if (s.voiceAccess) {
+          const problem = voiceAccessProblem(guild);
+          if (problem) throw new UserError(problem);
+        }
+        await disableVoiceAccess(guild);
+        reply = `🔓 <#${s.channelId}> is visible to everyone again.`;
+      }
+      requestUpdate(gid);
+      break;
+    }
     case 'voice-status': {
       const on = options.getBoolean('enabled', true);
       updateSettings(gid, { voiceStatus: on });
@@ -659,6 +696,8 @@ async function runConfig(interaction) {
       break;
     }
     case 'reset': {
+      // Undo voice-only access first, so no hidden channel or leftover entries stay behind.
+      if (s.voiceAccess) await disableVoiceAccess(guild).catch(() => null);
       const hadBanner = s.customBanner;
       if (hadBanner && existsSync(join(bannerDir(), hadBanner))) unlinkSync(join(bannerDir(), hadBanner));
       resetSettings(gid);

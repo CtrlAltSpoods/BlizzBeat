@@ -23,6 +23,7 @@ import { hasCookies, isYoutubeBlock, youtubeBackend } from './youtube.js';
 import { clearVoiceStatus, setVoiceStatus, updatePresence } from './status.js';
 import { looksLikeMedia } from './uploads.js';
 import { attachLiveKeeper, liveWatched } from './live.js';
+import { onVoiceStateUpdate } from './voiceAccess.js';
 import { lastMediaError } from './media.js';
 import { escapeMd, mediaInfo, truncate } from './util/format.js';
 
@@ -153,6 +154,7 @@ export function registerDiscordEvents() {
   client.on(Events.Raw, (packet) => lavalink.sendRawData(packet));
 
   client.on(Events.VoiceStateUpdate, async (oldState, newState) => {
+    onVoiceStateUpdate(oldState, newState);
     const guildId = newState.guild.id;
     if (!lavalink.getPlayer(guildId)) return;
     evaluateIdle(guildId);

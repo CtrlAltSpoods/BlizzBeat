@@ -134,6 +134,7 @@ Commands used inside the Blizzbeat channel reply privately so the channel stays 
 | `/config user-limit` | Maximum queued songs per person |
 | `/config song-length` | Longest song allowed, in minutes |
 | `/config playlists` | Allow or block playlists and albums |
+| `/config voice-access` | Only show the Blizzbeat channel to people in a voice channel (see below) |
 | `/config uploads` | Allow or block audio files dropped in the player channel, and set the largest file size (default 100 MB) |
 | `/config auto-leave` | Minutes to wait before leaving when idle or alone |
 | `/config stay-247` | Stay in voice 24/7 |
@@ -171,6 +172,18 @@ YouTube, Spotify, Bandcamp, Twitch and Vimeo links play through Lavalink's own s
 3. Lavalink plays that from a small server inside the container. It only listens on 127.0.0.1 and only serves links the bot signed itself.
 
 For safety, links that point to private network addresses (your LAN, the container itself) are refused. Songs from these sites can't be seeked, and if yt-dlp can't read a SoundCloud link, Blizzbeat plays the same song from YouTube instead.
+
+## Voice-only access
+
+`/config voice-access enabled:true` hides the Blizzbeat channel from everyone (`@everyone` can't view it) and gives each person in a voice channel their own entry that lets them see it. 30 seconds after someone leaves voice, their entry is removed entirely. Moving between voice channels keeps access, and the AFK channel doesn't count.
+
+- Admins always see every channel in Discord, so they never get an entry.
+- Blizzbeat only removes entries it created. Entries an admin set by hand are left alone.
+- On startup it catches up with who is in voice right now.
+- Turning it off removes every entry it added and makes the channel visible to everyone again. So do `/config reset` and `/setup remove`.
+- Needs **Manage Permissions** on the channel (or **Manage Roles** on the server). New invites include it; for an existing install, give Blizzbeat's role that permission first.
+
+While it's off, the player shows a tip to mute the channel for people who get notified for every message.
 
 ## Playing your own files
 

@@ -167,8 +167,7 @@ function idleEmbed(guildId, player, settings) {
         `🔎 Searches use **${SEARCH_SOURCES[settings.searchSource] ?? settings.searchSource}**. Links from YouTube, SoundCloud${config.spotifyEnabled ? ', Spotify' : ''} and more work too.`,
         ...(settings.uploadsEnabled ? [`📎 You can also **drop an audio file** here to play it.`] : []),
         `📻 Autoplay is **${settings.autoplay ? 'on' : 'off'}**.`,
-        '',
-        `-# ${MUTE_TIP}`,
+        ...(settings.voiceAccess ? [] : ['', `-# ${MUTE_TIP}`]),
       ].join('\n'),
     )
     .setThumbnail(client.user?.displayAvatarURL({ size: 256 }) ?? null)
@@ -212,7 +211,7 @@ function playingEmbed(player, settings) {
       { name: 'Effect', value: `${EFFECTS[currentEffect(player)]?.label ?? 'Off'}`, inline: true },
     )
     .setFooter({
-      text: `${trackSourceLabel(track)} · in ${player.voiceChannelId ? (client.channels.cache.get(player.voiceChannelId)?.name ?? 'voice') : 'voice'}\n${MUTE_TIP}`,
+      text: `${trackSourceLabel(track)} · in ${player.voiceChannelId ? (client.channels.cache.get(player.voiceChannelId)?.name ?? 'voice') : 'voice'}${settings.voiceAccess ? '' : `\n${MUTE_TIP}`}`,
     });
 
   const votes = voteStatus(player);

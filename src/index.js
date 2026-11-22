@@ -15,6 +15,7 @@ import { markShuttingDown, restoreSessions, saveAll, startAutosave, startUploadS
 import { updatePresence } from './status.js';
 import { startDailyUpdates, verifyOnConnect } from './updater.js';
 import { restoreYoutubeLogin } from './youtube.js';
+import { syncAllVoiceAccess } from './voiceAccess.js';
 
 assertConfig();
 
@@ -92,6 +93,7 @@ client.once(Events.ClientReady, async (ready) => {
   startAutosave();
   startUploadSweeper();
   updatePresence();
+  syncAllVoiceAccess(client).catch((err) => log.warn('Voice-only access sync failed:', err?.message ?? err));
   for (const { guildId } of allConfiguredGuilds()) {
     if (ready.guilds.cache.has(guildId)) requestUpdate(guildId);
   }

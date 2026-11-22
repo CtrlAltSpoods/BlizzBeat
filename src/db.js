@@ -63,6 +63,8 @@ export function defaultSettings() {
     maxSongMinutes: 0, // 0 = no limit
     maxPerUser: 0, // 0 = no limit
     allowPlaylists: true,
+    voiceAccess: false, // channel visible only to people in a voice channel
+    voiceAccessUsers: [], // members Blizzbeat gave their own "can see" entry
     bannerAsset: null, // which default banner is posted (so a new default can replace it)
     uploadsEnabled: true, // audio files dropped into the player channel
     uploadMaxMb: 100, // per file; Discord's own upload limit applies too
