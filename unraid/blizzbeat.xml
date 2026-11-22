@@ -13,8 +13,8 @@
   <Category>MediaApp:Music Tools:</Category>
   <WebUI/>
   <TemplateURL>https://raw.githubusercontent.com/CtrlAltSpoods/Blizzbeat/main/unraid/blizzbeat.xml</TemplateURL>
-  <Icon>https://raw.githubusercontent.com/CtrlAltSpoods/Blizzbeat/main/assets/avatar.png</Icon>
-  <ExtraParams>--stop-timeout 20 --log-opt max-size=10m --log-opt max-file=3</ExtraParams>
+  <Icon>https://raw.githubusercontent.com/CtrlAltSpoods/Blizzbeat/main/assets/icon.png</Icon>
+  <ExtraParams>--stop-timeout 20 --dns 1.1.1.1 --log-opt max-size=10m --log-opt max-file=3</ExtraParams>
   <PostArgs/>
   <CPUset/>
   <DateInstalled/>

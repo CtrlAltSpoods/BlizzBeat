@@ -92,7 +92,8 @@ def snowflake(cx, cy, R, stroke):
 
 def note_svg(cx, cy, bob=0.0):
     """The eighth note in the centre of the snowflake emblem (drawn for an emblem centred on cx, cy)."""
-    dx, dy = cx - 205, cy - 190 + bob
+    # The glyph's outline is centred on (205.25, 188.75); shift it so it sits exactly on the emblem centre.
+    dx, dy = cx - 205 - 0.25, cy - 190 + 1.25 + bob
     return (f'<g fill="#0b2446" transform="translate({dx:.2f} {dy:.2f})">'
             '<ellipse cx="200" cy="199.5" rx="7.6" ry="5.7" transform="rotate(-22 200 199.5)"/>'
             '<rect x="204.6" y="172" width="3.6" height="28" rx="1.2"/>'
