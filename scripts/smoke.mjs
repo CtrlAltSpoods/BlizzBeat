@@ -7,7 +7,7 @@ const results = [];
 const YTDLP = process.env.YOUTUBE_BACKEND === 'ytdlp';
 const ok = (name, detail = '') => results.push({ name, pass: true, detail });
 // Known upstream/environment problems (YouTube's datacenter bot wall, SoundCloud's new format) are reported as WARN.
-const KNOWN = /sign in to confirm|content isn.t available|requires login|not a bot|supported formats|Something went wrong while looking up|status code: 403|playlist does not exist|Read timed out|aborted due to timeout|known upstream|HTTP Error 403/i;
+const KNOWN = /sign in to confirm|content isn.t available|failed to extract any player response|requires login|not a bot|supported formats|Something went wrong while looking up|status code: 403|playlist does not exist|Read timed out|aborted due to timeout|known upstream|HTTP Error 403/i;
 const bad = (name, detail = '') => results.push({ name, pass: false, warn: KNOWN.test(String(detail)), detail });
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const withTimeout = (p, ms, label) =>
