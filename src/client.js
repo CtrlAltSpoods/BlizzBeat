@@ -65,6 +65,9 @@ export const lavalink = new LavalinkManager({
       secure: config.lavalink.secure,
       retryAmount: 1000,
       retryDelay: 5_000,
+      // Songs from yt-dlp sites start once yt-dlp has read the page, which can take 10+ s; the default 10 s
+      // request timeout gave up first ("The operation was aborted due to timeout").
+      requestSignalTimeoutMS: 30_000,
       // Blizzbeat checks sources itself; the built-in check doesn't know yt-dlp serves YouTube.
       autoChecks: { sourcesValidations: false, pluginValidations: false },
     },

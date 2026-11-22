@@ -85,11 +85,24 @@ jobs:
         with:
           context: .
           platforms: linux/amd64,linux/arm64
-          push: true
+          # Docker-style manifests without attestations: Unraid's "Check for updates" can't read the OCI
+          # index buildx makes by default (with provenance/SBOM) and shows the container as "not available".
+          outputs: type=registry,oci-mediatypes=false
+          provenance: false
+          sbom: false
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      - name: Check the manifest type
+        run: |
+          image="ghcr.io/${{ github.repository_owner }}/blizzbeat:latest"
+          image="${image,,}"
+          type=$(docker buildx imagetools inspect "$image" --raw | jq -r .mediaType)
+          echo "Manifest type: $type"
+          echo "MANIFEST_TYPE=$type" >> "$GITHUB_ENV"
+          [[ "$type" == "application/vnd.docker.distribution.manifest.list.v2+json" ]] || { echo "::warning::Unraid may show updates as 'not available' for $type"; }
 
       - name: Summary
         run: |
@@ -99,4 +112,5 @@ jobs:
             echo "${{ steps.meta.outputs.tags }}"
             echo '```'
             echo "Update a server with: \`docker compose pull && docker compose up -d\`"
+            echo "Manifest type: \`$MANIFEST_TYPE\`"
           } >> "$GITHUB_STEP_SUMMARY"
