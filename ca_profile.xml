@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<CommunityApplications>
+  <Profile>Blizzbeat is a self-hosted Discord music bot (a Nightbot replacement) with Lavalink built in, packaged as one container.
+
+What you get:
+- Its own channel with an animated banner and one live player (now playing, progress, Up Next, buttons) that is edited in place, never spammed.
+- Type a song name or link, or drop an audio file, to play it. Slash commands for everything else (/play, /queue, /favourites, /config...).
+- YouTube (Lavalink plugin or yt-dlp), Spotify, SoundCloud, Bandcamp, Twitch and anything yt-dlp supports, with original-quality Opus passthrough.
+- Autoplay with moods, favourites, vote-skip, audio effects, live-stream auto-reconnect, Stage channel support and voice-only channel access.
+- Lavalink, its plugins and yt-dlp update themselves on launch and daily.
+
+Only a Discord bot token is required. Setup guide, configuration and troubleshooting are in the README on GitHub. For help or bug reports, open an issue on GitHub.</Profile>
+  <Icon>https://raw.githubusercontent.com/CtrlAltSpoods/Blizzbeat/main/assets/avatar.png</Icon>
+  <WebPage>https://github.com/CtrlAltSpoods/Blizzbeat</WebPage>
+  <Forum>https://github.com/CtrlAltSpoods/Blizzbeat/issues</Forum>
+  <Photo>https://raw.githubusercontent.com/CtrlAltSpoods/Blizzbeat/main/assets/banner.png</Photo>
+  <!-- Optional, add if you have them:
+  <Discord>https://discord.gg/YOUR-INVITE</Discord>
+  <DonateLink>https://example.com/donate</DonateLink>
+  <DonateText>Buy me a coffee</DonateText>
+  -->
+</CommunityApplications>
