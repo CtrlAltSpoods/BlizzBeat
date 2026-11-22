@@ -225,12 +225,16 @@ export function youtubeIdOf(track) {
 }
 
 /**
- * yt-dlp mode: YouTube songs play through the bot's media server, where yt-dlp's own request headers
- * are used (and yt-dlp downloads the audio itself if a direct fetch is refused). Lavalink fetching the
- * stream URL itself gets "403" from YouTube. Other tracks are returned unchanged.
+ * YouTube songs that play through the bot's media server, where yt-dlp downloads the audio itself:
+ * - yt-dlp mode: all of them (Lavalink fetching yt-dlp's stream URL itself gets "403" from YouTube).
+ * - plugin mode: live streams only. youtube-source plays a live from one link that YouTube stops
+ *   accepting after ~30 s, so lives end early (youtube-source#242); yt-dlp plays them from YouTube's
+ *   HLS stream, which hands out fresh links as it goes.
+ * Other tracks are returned unchanged.
  */
 function viaMediaServer(track) {
-  if (youtubeBackend() !== 'ytdlp' || !track?.info || mediaInfo(track.info.uri)) return track;
+  if (!track?.info || mediaInfo(track.info.uri)) return track;
+  if (youtubeBackend() !== 'ytdlp' && !track.info.isStream) return track;
   const id = youtubeIdOf(track);
   if (!id) return track;
   const { info } = track;
