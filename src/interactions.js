@@ -60,6 +60,27 @@ async function handleButton(interaction) {
     await interaction.editReply({ content }).catch(() => null);
     return;
   }
+  if (action.startsWith('mood:')) {
+    await interaction.deferUpdate().catch(() => null);
+    try {
+      const player = music.assertCanControl(interaction.member, 'autoplay');
+      const message = music.setMood(interaction.guildId, action.slice(5));
+      await interaction.followUp({ content: message, flags: MessageFlags.Ephemeral }).catch(() => null);
+      // Nothing left to play: start a mood pick straight away.
+      if (getSettings(interaction.guildId).autoplay && !player.queue.current && !player.queue.tracks.length) {
+        const last = player.queue.previous[0];
+        if (last) {
+          await music.autoplayNext(player, last);
+          if (player.queue.tracks.length) await player.play({ paused: false });
+        }
+      }
+    } catch (err) {
+      await interaction.followUp({ content: friendly(err), flags: MessageFlags.Ephemeral }).catch(() => null);
+    } finally {
+      requestUpdate(interaction.guildId);
+    }
+    return;
+  }
   const kind = BUTTON_ACTIONS[action];
   if (!kind) return;
   await interaction.deferUpdate().catch(() => null);

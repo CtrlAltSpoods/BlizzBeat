@@ -15,12 +15,14 @@ import { client, commandMention, lavalink, queueHooks } from './client.js';
 import { config } from './config.js';
 import { bannerDir, getSettings, updateSettings } from './db.js';
 import { log } from './logger.js';
-import { currentEffect, EFFECTS, isOriginalQuality, LOOP_LABEL, SEARCH_SOURCES, voteStatus } from './music.js';
+import { currentEffect, EFFECTS, isOriginalQuality, LOOP_LABEL, MOODS, SEARCH_SOURCES, voteStatus } from './music.js';
+import { effectiveVersions, ytdlpVersion } from './updater.js';
 import {
   displayUri,
   escapeMd,
   formatDuration,
   isUrl,
+  mediaInfo,
   progressBar,
   trackSourceLabel,
   trackDuration,
@@ -128,7 +130,15 @@ function buildComponents(player, settings) {
         })),
       ),
   );
-  return [row1, row2, row3];
+  // Mood buttons steer autoplay; the active one is highlighted.
+  const mood = settings.autoplayMood && settings.autoplay ? settings.autoplayMood : null;
+  const row4 = new ActionRowBuilder().addComponents(
+    button('mood:any', '🎵', !mood ? ButtonStyle.Primary : ButtonStyle.Secondary, !player, 'Any'),
+    ...Object.entries(MOODS).map(([id, m]) =>
+      button(`mood:${id}`, m.emoji, mood === id ? ButtonStyle.Success : ButtonStyle.Secondary, !player, m.label),
+    ),
+  );
+  return [row1, row2, row3, row4];
 }
 
 function queueContent(player) {
@@ -182,6 +192,44 @@ function idleEmbed(guildId, player, settings) {
   return embed;
 }
 
+// Versions for the "Played by" field, refreshed every few minutes (the embed updates every few seconds).
+let versionCache = { at: 0, v: null, ytdlp: null };
+function versions() {
+  if (Date.now() - versionCache.at > 5 * 60_000) {
+    let v = null;
+    try {
+      v = effectiveVersions();
+    } catch {
+      /* keep going without versions */
+    }
+    versionCache = { at: Date.now(), v, ytdlp: ytdlpVersion() };
+  }
+  return versionCache;
+}
+
+const shortVersion = (version) => (/^[0-9a-f]{40}$/i.test(String(version ?? '')) ? String(version).slice(0, 7) : version ?? '');
+
+/** Which part of the stack is playing the song: the YouTube plugin, LavaSrc, yt-dlp or Lavalink itself. */
+function playedBy(track) {
+  const { v, ytdlp } = versions();
+  const media = mediaInfo(track?.info?.uri);
+  if (media?.page.startsWith('upload:')) return `Lavalink ${v?.lavalink.version ?? ''} · uploaded file`.trim();
+  if (media) return `yt-dlp ${ytdlp ?? ''}`.trim();
+  switch (track?.info?.sourceName) {
+    case 'youtube':
+    case 'youtubemusic':
+      return `youtube-source ${shortVersion(v?.youtube.version)}`.trim();
+    case 'spotify':
+    case 'applemusic':
+    case 'deezer':
+      return `LavaSrc ${v?.lavasrc.version ?? ''} → youtube-source`.replace(/\s+→/, ' →');
+    case 'ytdlp':
+      return `LavaSrc ${v?.lavasrc.version ?? ''} (yt-dlp)`;
+    default:
+      return `Lavalink ${v?.lavalink.version ?? ''}`.trim();
+  }
+}
+
 function playingEmbed(player, settings) {
   const track = player.queue.current;
   const info = track.info;
@@ -207,8 +255,15 @@ function playingEmbed(player, settings) {
       { name: 'Requested by', value: requester?.id ? `<@${requester.id}>` : '📻 Autoplay', inline: true },
       { name: 'Volume', value: `${player.volume}%${isOriginalQuality(player) ? ' · 🎧 original' : ''}`, inline: true },
       { name: 'Loop', value: LOOP_LABEL[player.repeatMode] ?? 'Off', inline: true },
-      { name: 'Autoplay', value: settings.autoplay ? 'On' : 'Off', inline: true },
+      {
+        name: 'Autoplay',
+        value: settings.autoplay
+          ? `On${MOODS[settings.autoplayMood] ? ` · ${MOODS[settings.autoplayMood].emoji} ${MOODS[settings.autoplayMood].label}` : ''}`
+          : 'Off',
+        inline: true,
+      },
       { name: 'Effect', value: `${EFFECTS[currentEffect(player)]?.label ?? 'Off'}`, inline: true },
+      { name: 'Played by', value: playedBy(track), inline: true },
     )
     .setFooter({
       text: `${trackSourceLabel(track)} · in ${player.voiceChannelId ? (client.channels.cache.get(player.voiceChannelId)?.name ?? 'voice') : 'voice'}${settings.voiceAccess ? '' : `\n${MUTE_TIP}`}`,

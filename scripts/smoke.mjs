@@ -376,6 +376,27 @@ for (const [label, query] of probes) {
   }
 }
 
+// --- mood buttons steer autoplay
+{
+  try {
+    const db = await import('../src/db.js');
+    const press = async (id) => {
+      const i = fakeInteraction('mood');
+      Object.assign(i, { customId: `bb:${id}`, channelId: '500', isButton: () => true, isChatInputCommand: () => false, async deferUpdate() {} });
+      await withTimeout(handleInteraction(i), 30_000, id);
+      const r = i.out.replies.at(-1) ?? i.out.followUps?.at(-1);
+      return r?.content ?? JSON.stringify(i.out).slice(0, 200);
+    };
+    const chill = await press('mood:chill');
+    const s1 = db.getSettings('200');
+    (s1.autoplayMood === 'chill' && s1.autoplay ? ok : bad)('😌 mood button', `${chill.slice(0, 120)} (mood=${s1.autoplayMood}, autoplay=${s1.autoplay})`);
+    const any = await press('mood:any');
+    (db.getSettings('200').autoplayMood === null ? ok : bad)('🎵 Any clears the mood', any.slice(0, 100));
+  } catch (err) {
+    bad('mood buttons', err.stack);
+  }
+}
+
 // --- audio files dropped into the player channel
 {
   const { execFileSync } = await import('node:child_process');

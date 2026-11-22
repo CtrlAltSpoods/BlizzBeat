@@ -894,6 +894,49 @@ export async function applyEffect(player, key) {
 
 export const AUTOPLAY_REQUESTER = { id: null, username: 'Autoplay', displayName: 'Autoplay', avatar: null, autoplay: true };
 
+/**
+ * Moods steer autoplay. Each pick either looks for that mood near the artist that was just playing, or
+ * starts from one of the mood's own searches, so it doesn't get stuck on one artist.
+ */
+export const MOODS = {
+  chill: {
+    emoji: '😌',
+    label: 'Chill',
+    near: 'chill',
+    seeds: ['chill vibes songs', 'lofi chill', 'chill indie songs', 'chill r&b', 'acoustic chill songs', 'chillhop'],
+  },
+  hype: {
+    emoji: '🔥',
+    label: 'Hype',
+    near: 'hype',
+    seeds: ['hype songs', 'pump up songs', 'edm bangers', 'hype rap songs', 'workout music', 'festival anthems'],
+  },
+  gaming: {
+    emoji: '🎮',
+    label: 'Gaming',
+    near: 'gaming',
+    seeds: ['gaming music', 'synthwave', 'video game music remix', 'phonk', 'drum and bass', 'electro gaming music'],
+  },
+  focus: {
+    emoji: '🎧',
+    label: 'Focus',
+    near: 'instrumental',
+    seeds: ['lofi beats', 'instrumental focus music', 'ambient electronic', 'study music piano', 'downtempo instrumental'],
+  },
+};
+
+/** Sets (or clears, with null) the autoplay mood. Picking a mood also turns autoplay on. */
+export function setMood(guildId, mood) {
+  const m = MOODS[mood];
+  if (!m) {
+    updateSettings(guildId, { autoplayMood: null });
+    return '🎵 Mood cleared: autoplay follows whatever was playing last.';
+  }
+  const wasOn = getSettings(guildId).autoplay;
+  updateSettings(guildId, { autoplayMood: mood, autoplay: true });
+  return `${m.emoji} Mood set to **${m.label}**: autoplay will pick ${m.label.toLowerCase()} songs when the queue runs out.${wasOn ? '' : ' (Autoplay is now on.)'}`;
+}
+
 export function setAutoplay(guildId, enabled) {
   updateSettings(guildId, { autoplay: enabled });
   return enabled
@@ -964,7 +1007,9 @@ export async function autoplayNext(player, lastTrack) {
   const recentTitles = new Set(
     [lastTrack, ...player.queue.previous].slice(0, 50).map((t) => t?.info?.title?.toLowerCase()).filter(Boolean),
   );
-  const maxMs = settings.maxSongMinutes > 0 ? settings.maxSongMinutes * 60_000 : 12 * 60_000;
+  const mood = MOODS[settings.autoplayMood];
+  let maxMs = settings.maxSongMinutes > 0 ? settings.maxSongMinutes * 60_000 : 12 * 60_000;
+  if (mood) maxMs = Math.min(maxMs, 8 * 60_000); // mood searches turn up hour-long mixes; skip those
   const usable = (t) =>
     !recentIds.has(keyOf(t)) &&
     !recentTitles.has(t.info.title?.toLowerCase()) &&
@@ -981,6 +1026,13 @@ export async function autoplayNext(player, lastTrack) {
     attempts.push({ query: `https://www.youtube.com/watch?v=${ytId}&list=RD${ytId}` });
   }
   const musicSearch = resolveSearchSource('ytmsearch');
+  if (mood) {
+    // Mood first: near the last artist about half the time, otherwise one of the mood's searches.
+    const seeds = [...mood.seeds].sort(() => Math.random() - 0.5).slice(0, 2);
+    const moodAttempts = seeds.map((q) => ({ query: q, source: musicSearch }));
+    if (author) moodAttempts.splice(Math.random() < 0.5 ? 0 : 1, 0, { query: `${author} ${mood.near}`, source: musicSearch });
+    attempts.unshift(...moodAttempts);
+  }
   if (author) attempts.push({ query: author, source: musicSearch });
   attempts.push({ query: `${lastTrack.info.title} ${author ?? ''}`.trim(), source: musicSearch });
 
@@ -993,7 +1045,7 @@ export async function autoplayNext(player, lastTrack) {
       pick = viaMediaServer((await officialAudioFor(player, pick, usable)) ?? pick);
       warmTrack(pick);
       await player.queue.add(pick);
-      log.info(`[${player.guildId}] autoplay picked: ${pick.info.title}`);
+      log.info(`[${player.guildId}] autoplay picked${mood ? ` (${mood.label})` : ''}: ${pick.info.title}`);
       return;
     } catch (err) {
       log.debug('Autoplay search failed:', err?.message ?? err);
