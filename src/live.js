@@ -8,6 +8,7 @@ import { mediaInfo } from './util/format.js';
 const state = new Map(); // guildId -> { key, track, title, startedAt, stuck, pending, resumes: [] }
 const MAX_RESUMES = 8; // within RESUME_WINDOW_MS
 const RESUME_WINDOW_MS = 10 * 60_000;
+const HEALTHY_MS = 20_000; // played at least this long before dropping
 
 const keyOf = (t) => t?.info?.uri ?? t?.encoded ?? null;
 
@@ -87,18 +88,21 @@ function onRaw(payload) {
   }
 
   const now = Date.now();
+  // A drop after the stream played fine for a while (YouTube cuts some lives every ~30 s, see
+  // youtube-source #242) is reconnected right away and never counts towards giving up. Only drops soon
+  // after (re)connecting count, and those back off.
+  const healthy = now - s.startedAt >= HEALTHY_MS;
+  if (healthy) s.resumes = [];
   s.resumes = s.resumes.filter((t) => now - t < RESUME_WINDOW_MS);
   if (s.resumes.length >= MAX_RESUMES) {
-    log.info(`[${gid}] live stream keeps dropping, giving up: ${s.title}`);
+    log.info(`[${gid}] live stream keeps failing to reconnect, giving up: ${s.title}`);
     state.delete(gid);
     hooks.onGiveUp?.(gid, s.title);
     return;
   }
-  // Played a good while before dropping: start the backoff over.
-  if (now - s.startedAt > 5 * 60_000) s.resumes = [];
-  s.resumes.push(now);
+  if (!healthy) s.resumes.push(now);
   s.pending = true;
-  const delay = Math.min(15_000, 1000 * 2 ** (s.resumes.length - 1));
+  const delay = healthy ? 500 : Math.min(15_000, 1000 * 2 ** (s.resumes.length - 1));
   log.info(`[${gid}] live stream ended (${reason}${s.stuck ? ', stalled' : ''}); reconnecting in ${delay / 1000}s: ${s.title}`);
   setTimeout(() => resume(gid, s), delay).unref?.();
 }

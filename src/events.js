@@ -30,7 +30,7 @@ export function registerLavalinkEvents() {
   playerHooks.autoplay = autoplayNext;
   attachLiveKeeper(lavalink, {
     onGiveUp: (guildId, title) =>
-      flash(guildId, `📡 **${escapeMd(truncate(title ?? 'The live stream', 80))}** keeps dropping out, so I've stopped reconnecting. Request it again to retry.`, 60_000),
+      flash(guildId, `📡 **${escapeMd(truncate(title ?? 'The live stream', 80))}** couldn't reconnect after several tries, so I've stopped. Request it again to retry.`, 60_000),
   });
   playerHooks.onAutoplayPaused = (guildId) =>
     flash(guildId, '📻 Autoplay stopped because the last few songs failed to play. Request a song to carry on.', 30_000);

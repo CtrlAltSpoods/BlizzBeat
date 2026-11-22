@@ -153,6 +153,9 @@ function queueContent(player) {
   return [header, ...lines, footer].join('\n');
 }
 
+// Shown on the player: song requests are messages, so people notified for every message get pinged.
+const MUTE_TIP = '🔕 Get notified for every message on this server? Mute this channel so song requests stay quiet.';
+
 function idleEmbed(guildId, player, settings) {
   const embed = new EmbedBuilder()
     .setColor(settings.embedColor)
@@ -164,6 +167,8 @@ function idleEmbed(guildId, player, settings) {
         `🔎 Searches use **${SEARCH_SOURCES[settings.searchSource] ?? settings.searchSource}**. Links from YouTube, SoundCloud${config.spotifyEnabled ? ', Spotify' : ''} and more work too.`,
         ...(settings.uploadsEnabled ? [`📎 You can also **drop an audio file** here to play it.`] : []),
         `📻 Autoplay is **${settings.autoplay ? 'on' : 'off'}**.`,
+        '',
+        `-# ${MUTE_TIP}`,
       ].join('\n'),
     )
     .setThumbnail(client.user?.displayAvatarURL({ size: 256 }) ?? null)
@@ -206,7 +211,9 @@ function playingEmbed(player, settings) {
       { name: 'Autoplay', value: settings.autoplay ? 'On' : 'Off', inline: true },
       { name: 'Effect', value: `${EFFECTS[currentEffect(player)]?.label ?? 'Off'}`, inline: true },
     )
-    .setFooter({ text: `${trackSourceLabel(track)} · in ${player.voiceChannelId ? (client.channels.cache.get(player.voiceChannelId)?.name ?? 'voice') : 'voice'}` });
+    .setFooter({
+      text: `${trackSourceLabel(track)} · in ${player.voiceChannelId ? (client.channels.cache.get(player.voiceChannelId)?.name ?? 'voice') : 'voice'}\n${MUTE_TIP}`,
+    });
 
   const votes = voteStatus(player);
   if (votes) embed.addFields({ name: 'Skip votes', value: `🗳️ ${votes.count}/${votes.needed}`, inline: true });
