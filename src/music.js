@@ -1,6 +1,6 @@
 // Song requests, playback controls, permission checks and idle handling.
 import { createHash } from 'node:crypto';
-import { PermissionFlagsBits } from 'discord.js';
+import { ChannelType, PermissionFlagsBits } from 'discord.js';
 import { client, commandMention, lavalink, playerHooks, toRequester } from './client.js';
 import { config } from './config.js';
 import {
@@ -176,7 +176,8 @@ async function playerFor(guild, member, textChannelId) {
       guildId: guild.id,
       voiceChannelId: vc.id,
       textChannelId: settings.channelId ?? textChannelId,
-      selfDeaf: true,
+      // Deafened in normal channels (saves bandwidth); not on a Stage, where Discord may not let a deafened member speak.
+      selfDeaf: vc.type !== ChannelType.GuildStageVoice,
       volume: Math.min(settings.defaultVolume, settings.maxVolume),
     });
   }

@@ -1,5 +1,5 @@
 // Survive restarts: snapshot each player (queue, song, position, settings) to SQLite and restore on boot.
-import { PermissionFlagsBits } from 'discord.js';
+import { ChannelType, PermissionFlagsBits } from 'discord.js';
 import { client, lavalink } from './client.js';
 import { config } from './config.js';
 import { flash, requestUpdate } from './controller.js';
@@ -167,7 +167,7 @@ export async function restoreSessions() {
         guildId,
         voiceChannelId: vc.id,
         textChannelId: settings.channelId ?? data.textChannelId ?? undefined,
-        selfDeaf: true,
+        selfDeaf: vc.type !== ChannelType.GuildStageVoice, // not deafened on a Stage (see music.js)
         volume: Math.min(data.volume ?? settings.defaultVolume, settings.maxVolume),
       });
       await player.connect();

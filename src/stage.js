@@ -5,7 +5,7 @@
 // - ends the Stage when it leaves, but only if Blizzbeat started it.
 // All of it needs Blizzbeat to be a Stage moderator in that channel (Manage Channels, Mute Members and
 // Move Members there); without that it falls back to asking to speak.
-import { ChannelType, PermissionFlagsBits, StageInstancePrivacyLevel } from 'discord.js';
+import { ChannelType, PermissionFlagsBits, Routes, StageInstancePrivacyLevel } from 'discord.js';
 import { client, lavalink } from './client.js';
 import { getSettings, updateSettings } from './db.js';
 import { log } from './logger.js';
@@ -74,27 +74,62 @@ const handRaised = new Set(); // guildId: already asked a moderator, don't repea
  * Makes Blizzbeat a speaker on the Stage it's in. Runs on its own, so a problem starting the Stage or
  * setting the topic can't stop it from speaking. Without moderator rights it raises its hand once.
  */
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const errText = (err) => `${err?.message ?? err}${err?.code ? ` (code ${err.code})` : ''}`;
+
+/** One attempt to unsuppress Blizzbeat: Discord's "@me" route first, then the same change by user id. */
+async function unsuppress(channel) {
+  const guild = channel.guild;
+  const body = { channel_id: channel.id, suppress: false };
+  try {
+    await client.rest.patch(Routes.guildVoiceState(guild.id, '@me'), { body });
+    return null;
+  } catch (err) {
+    const first = errText(err);
+    try {
+      await client.rest.patch(Routes.guildVoiceState(guild.id, guild.members.me.id), { body });
+      return null;
+    } catch (err2) {
+      return `${first}; by user id: ${errText(err2)}`;
+    }
+  }
+}
+
+/**
+ * Makes Blizzbeat a speaker on the Stage it's in. Runs on its own, so a problem starting the Stage or
+ * setting the topic can't stop it from speaking. Discord can refuse it for a few seconds right after
+ * joining (or right after the Stage goes live), so it retries a few times before raising its hand.
+ */
 async function ensureSpeaker(channel) {
   const guildId = channel.guild.id;
   const me = channel.guild.members.me;
-  const state = me?.voice;
-  if (!state || state.channelId !== channel.id || !state.suppress) return;
+  const current = () => channel.guild.voiceStates.cache.get(me?.id);
+  if (!me || current()?.channelId !== channel.id || !current()?.suppress) return;
   const perms = channel.permissionsFor(me);
   if (perms?.has(PermissionFlagsBits.MuteMembers)) {
-    try {
-      await state.setSuppressed(false);
-      handRaised.delete(guildId);
-      log.info(`[${guildId}] speaking on the Stage in #${channel.name}`);
-      return;
-    } catch (err) {
-      log.warn(`[${guildId}] couldn't become a speaker in #${channel.name}: ${err?.message ?? err}`);
+    let last = null;
+    for (const wait of [0, 1500, 4000, 8000]) {
+      if (wait) await sleep(wait);
+      const state = current();
+      if (state?.channelId !== channel.id) return; // left meanwhile
+      if (!state.suppress) return; // a moderator (or an earlier try) already did it
+      last = await unsuppress(channel);
+      if (!last) {
+        handRaised.delete(guildId);
+        log.info(`[${guildId}] speaking on the Stage in #${channel.name}`);
+        return;
+      }
+      log.debug(`[${guildId}] couldn't become a speaker yet: ${last}`);
     }
+    log.warn(`[${guildId}] couldn't become a speaker in #${channel.name}: ${last}`);
   } else {
     log.info(`[${guildId}] can't become a speaker in #${channel.name} by itself (no Mute Members there); raising hand`);
   }
-  if (handRaised.has(guildId)) return;
+  if (handRaised.has(guildId) || current()?.channelId !== channel.id) return;
   handRaised.add(guildId);
-  await state.setRequestToSpeak(true).catch((err) => log.debug(`[${guildId}] request to speak failed: ${err?.message ?? err}`));
+  await current()
+    ?.setRequestToSpeak(true)
+    .catch((err) => log.warn(`[${guildId}] couldn't raise my hand either: ${errText(err)}`));
   notify(
     guildId,
     `🎙️ I've raised my hand in <#${channel.id}>: a Stage moderator needs to invite me to speak. To skip this next time, give Blizzbeat **Manage Channels**, **Mute Members** and **Move Members** in that Stage.`,
