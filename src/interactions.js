@@ -81,7 +81,7 @@ async function handleButton(interaction) {
     }
     return;
   }
-  const kind = BUTTON_ACTIONS[action];
+  const kind = Object.hasOwn(BUTTON_ACTIONS, action) ? BUTTON_ACTIONS[action] : null;
   if (!kind) return;
   await interaction.deferUpdate().catch(() => null);
   try {

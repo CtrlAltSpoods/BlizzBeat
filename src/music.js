@@ -18,7 +18,7 @@ import { assertPublicUrl, isNativeLink, lastMediaError, mediaUrl, resolveLink, s
 import { forgetLive, liveResumePending } from './live.js';
 import { saveAttachment, UPLOAD_PREFIX, UploadError, uploadNameOf } from './uploads.js';
 import { resolveSearchSource, youtubeBackend } from './youtube.js';
-import { displayUri, escapeMd, formatDuration, isUrl, mediaInfo, trackDuration, trackLength, truncate } from './util/format.js';
+import { cleanQuery, displayUri, escapeMd, formatDuration, isUrl, mediaInfo, trackDuration, trackLength, truncate } from './util/format.js';
 
 /** An error whose message is safe and friendly to show to the user. */
 export class UserError extends Error {}
@@ -215,8 +215,9 @@ export function youtubeIdOf(track) {
   try {
     const u = new URL(displayUri(track));
     const host = u.hostname.toLowerCase();
-    if (host === 'youtu.be') return u.pathname.slice(1) || null;
-    if (/(^|\.)youtube\.com$/.test(host)) return u.searchParams.get('v') || null;
+    // Only real video ids (11 characters of A-Z a-z 0-9 _ -): they end up in links passed to yt-dlp.
+    const id = host === 'youtu.be' ? u.pathname.slice(1) : /(^|\.)youtube\.com$/.test(host) ? u.searchParams.get('v') : null;
+    if (id != null) return /^[\w-]{11}$/.test(id) ? id : null;
   } catch {
     /* not a URL */
   }
@@ -290,7 +291,7 @@ function assertCanRequest(settings, member) {
 
 export async function requestSongs({ guild, member, query, next = false, textChannelId }) {
   const settings = getSettings(guild.id);
-  const text = String(query ?? '').trim();
+  const text = cleanQuery(query);
   if (!text) throw new UserError('Tell me what to play: a song name or a link.');
   assertCanRequest(settings, member);
 
@@ -355,7 +356,7 @@ export async function requestSongs({ guild, member, query, next = false, textCha
     }
     if (sc) {
       const mirror = await player
-        .search({ query: `${sc.title} ${sc.author}`.trim(), source: resolveSearchSource('ytmsearch') }, requester)
+        .search({ query: cleanQuery(`${sc.title} ${sc.author}`), source: resolveSearchSource('ytmsearch') }, requester)
         .catch(() => null);
       if (mirror?.tracks?.length) {
         res = { ...mirror, loadType: 'track', tracks: [mirror.tracks[0]] };
@@ -875,7 +876,7 @@ export function currentEffect(player) {
 }
 
 export async function applyEffect(player, key) {
-  const effect = EFFECTS[key];
+  const effect = Object.hasOwn(EFFECTS, key) ? EFFECTS[key] : null;
   if (!effect) throw new UserError('Unknown effect.');
   const fm = player.filterManager;
   try {
@@ -927,7 +928,7 @@ export const MOODS = {
 
 /** Sets (or clears, with null) the autoplay mood. Picking a mood also turns autoplay on. */
 export function setMood(guildId, mood) {
-  const m = MOODS[mood];
+  const m = Object.hasOwn(MOODS, mood) ? MOODS[mood] : null;
   if (!m) {
     updateSettings(guildId, { autoplayMood: null });
     return '🎵 Mood cleared: autoplay follows whatever was playing last.';
@@ -952,7 +953,7 @@ async function officialAudioFor(player, track, usable) {
   if (track.info.sourceName === 'youtubemusic' || youtubeBackend() === 'ytdlp') return null;
   try {
     const res = await player.search(
-      { query: `${track.info.title} ${track.info.author}`, source: 'ytmsearch' },
+      { query: cleanQuery(`${track.info.title} ${track.info.author}`), source: 'ytmsearch' },
       AUTOPLAY_REQUESTER,
     );
     const target = track.info.duration;
@@ -1007,7 +1008,7 @@ export async function autoplayNext(player, lastTrack) {
   const recentTitles = new Set(
     [lastTrack, ...player.queue.previous].slice(0, 50).map((t) => t?.info?.title?.toLowerCase()).filter(Boolean),
   );
-  const mood = MOODS[settings.autoplayMood];
+  const mood = Object.hasOwn(MOODS, settings.autoplayMood ?? '') ? MOODS[settings.autoplayMood] : null;
   let maxMs = settings.maxSongMinutes > 0 ? settings.maxSongMinutes * 60_000 : 12 * 60_000;
   if (mood) maxMs = Math.min(maxMs, 8 * 60_000); // mood searches turn up hour-long mixes; skip those
   const usable = (t) =>
@@ -1036,7 +1037,10 @@ export async function autoplayNext(player, lastTrack) {
   if (author) attempts.push({ query: author, source: musicSearch });
   attempts.push({ query: `${lastTrack.info.title} ${author ?? ''}`.trim(), source: musicSearch });
 
-  for (const q of attempts) {
+  for (const attempt of attempts) {
+    // Song titles and artists come from websites: clean them like typed requests (only our own mix links are URLs).
+    const q = isUrl(attempt.query) ? attempt : { ...attempt, query: cleanQuery(attempt.query) };
+    if (!q.query) continue;
     try {
       const res = await player.search(q, AUTOPLAY_REQUESTER);
       const pool = (res?.tracks ?? []).filter(usable).slice(0, 8);

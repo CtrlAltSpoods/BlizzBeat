@@ -387,6 +387,15 @@ async function setBanner(guildId, attachment) {
   const res = await fetch(attachment.url);
   if (!res.ok) throw new UserError("I couldn't download that image. Try uploading it again.");
   const bytes = Buffer.from(await res.arrayBuffer());
+  // Check the file really is the image type it claims to be (and not bigger than allowed).
+  if (bytes.length > 8 * 1024 * 1024) throw new UserError('That image is over 8 MB.');
+  const looksRight = {
+    '.png': () => bytes.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])),
+    '.jpg': () => bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff,
+    '.gif': () => ['GIF87a', 'GIF89a'].includes(bytes.subarray(0, 6).toString('latin1')),
+    '.webp': () => bytes.subarray(0, 4).toString('latin1') === 'RIFF' && bytes.subarray(8, 12).toString('latin1') === 'WEBP',
+  }[ext];
+  if (!looksRight?.()) throw new UserError("That file isn't a valid PNG, JPG, GIF or WebP image.");
 
   removeOld();
   const fileName = `${guildId}${ext}`;

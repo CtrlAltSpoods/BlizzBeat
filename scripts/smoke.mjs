@@ -376,6 +376,18 @@ for (const [label, query] of probes) {
   }
 }
 
+// --- requests that try to reach the bot's own network are refused
+for (const [label, song] of [
+  ['blocks link: prefix to a private address', 'link:http://127.0.0.1:2333/version'],
+  ['blocks a private address link', 'http://[::ffff:7f00:1]:2333/version'],
+  ['blocks the LAN', 'https://192.168.1.1/'],
+]) {
+  const i = fakeInteraction('play', { song });
+  await withTimeout(handleInteraction(i), 30_000, label);
+  const r = i.out.replies.at(-1)?.content ?? '';
+  (/private network/i.test(r) ? ok : bad)(`input: ${label}`, r.slice(0, 120));
+}
+
 // --- mood buttons steer autoplay
 {
   try {

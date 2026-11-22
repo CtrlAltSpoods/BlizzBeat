@@ -11,7 +11,7 @@ import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import { config } from './config.js';
 import { log } from './logger.js';
-import { mediaInfo } from './util/format.js';
+import { escapeMd, mediaInfo, truncate } from './util/format.js';
 
 const FFMPEG = process.env.FFMPEG_PATH || 'ffmpeg';
 const FFPROBE = process.env.FFPROBE_PATH || 'ffprobe';
@@ -110,6 +110,9 @@ const flacArgs = (audio) => {
   ];
 };
 
+/** A file name as shown in a reply: no Markdown tricks, not too long. */
+const shownName = (fileName) => escapeMd(truncate(cleanName(fileName), 80));
+
 function cleanName(fileName) {
   const base = String(fileName ?? 'Uploaded file').replace(/\.[^.]{1,6}$/, '').replace(/[_]+/g, ' ').replace(/\s+/g, ' ').trim();
   return base || 'Uploaded file';
@@ -136,7 +139,7 @@ async function download(url, file, maxBytes) {
 export async function saveAttachment(attachment, { maxBytes }) {
   mkdirSync(UPLOAD_DIR, { recursive: true });
   if (attachment.size > maxBytes) {
-    throw new UploadError(`**${cleanName(attachment.name)}** is ${(attachment.size / 1048576).toFixed(1)} MB; this server's limit is ${Math.round(maxBytes / 1048576)} MB.`);
+    throw new UploadError(`**${shownName(attachment.name)}** is ${(attachment.size / 1048576).toFixed(1)} MB; this server's limit is ${Math.round(maxBytes / 1048576)} MB.`);
   }
   const id = randomBytes(12).toString('hex');
   const raw = join(UPLOAD_DIR, `${id}.part`);
@@ -149,13 +152,13 @@ export async function saveAttachment(attachment, { maxBytes }) {
     try {
       info = await probe(raw);
     } catch {
-      throw new UploadError(`**${cleanName(attachment.name)}** isn't an audio file I can read.`);
+      throw new UploadError(`**${shownName(attachment.name)}** isn't an audio file I can read.`);
     }
     const audio = (info.streams ?? []).find((s) => s.codec_type === 'audio');
-    if (!audio) throw new UploadError(`**${cleanName(attachment.name)}** has no audio in it.`);
+    if (!audio) throw new UploadError(`**${shownName(attachment.name)}** has no audio in it.`);
 
     const durationMs = Math.round(Number(info.format?.duration || audio.duration || 0) * 1000);
-    if (!durationMs) throw new UploadError(`**${cleanName(attachment.name)}** has no playable audio.`);
+    if (!durationMs) throw new UploadError(`**${shownName(attachment.name)}** has no playable audio.`);
 
     const p = plan(info, audio);
     let ext = null;
@@ -181,7 +184,7 @@ export async function saveAttachment(attachment, { maxBytes }) {
         await run(FFMPEG, ['-nostdin', '-hide_banner', '-loglevel', 'error', '-y', '-i', raw, ...flacArgs(audio), out], 600_000);
       } catch (err) {
         log.info(`[upload] couldn't convert ${attachment.name}: ${err.message}`);
-        throw new UploadError(`I couldn't read the audio in **${cleanName(attachment.name)}**.`);
+        throw new UploadError(`I couldn't read the audio in **${shownName(attachment.name)}**.`);
       }
       renameSync(out, join(UPLOAD_DIR, `${id}.flac`));
       ext = 'flac';

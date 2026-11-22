@@ -77,6 +77,22 @@ export function trackDuration(track) {
   return len ? formatDuration(len) : 'LIVE';
 }
 
+/**
+ * Cleans a typed song request: control and zero-width characters become spaces, whitespace is collapsed,
+ * the length is capped, and lavalink-client's raw-load prefixes are removed. lavalink-client reads
+ * "link:", "uri:" and "local:" in front of a query as "load this identifier as-is", which would let a
+ * typed request make Lavalink fetch any address (including ones on your network) without the bot's
+ * link checks. "link:https://…" still works: it becomes a normal link.
+ */
+export function cleanQuery(input, maxLength = 500) {
+  let text = String(input ?? '')
+    .replace(/[\u0000-\u001f\u007f-\u009f\u200b-\u200f\u2028-\u202e\u2060-\u206f\ufeff]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  for (let m; (m = /^(link|uri|local)\s*:\s*/i.exec(text)); ) text = text.slice(m[0].length);
+  return text.slice(0, maxLength).trim();
+}
+
 export function isUrl(text) {
   return /^https?:\/\/\S+$/i.test(String(text ?? '').trim());
 }

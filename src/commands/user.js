@@ -6,7 +6,7 @@ import { clearFavourites, getSettings, listFavourites, removeFavourite } from '.
 import { nowPlayingEmbed } from '../controller.js';
 import * as music from '../music.js';
 import { UserError } from '../music.js';
-import { escapeMd, formatDuration, isUrl, parseTime, trackDuration, trackLength, truncate } from '../util/format.js';
+import { cleanQuery, escapeMd, formatDuration, isUrl, parseTime, trackDuration, trackLength, truncate } from '../util/format.js';
 import { resolveSearchSource } from '../youtube.js';
 
 const guildOnly = (b) => b.setContexts(InteractionContextType.Guild);
@@ -360,7 +360,7 @@ export async function autocompleteFavourites(interaction) {
 
 /** Live search suggestions while typing in /play. */
 export async function autocompletePlay(interaction) {
-  const focused = String(interaction.options.getFocused() ?? '').trim();
+  const focused = cleanQuery(interaction.options.getFocused(), 200);
   if (focused.length < 2 || isUrl(focused) || !lavalink.useable) return interaction.respond([]);
 
   const node = lavalink.nodeManager.leastUsedNodes()[0];

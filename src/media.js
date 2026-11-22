@@ -70,14 +70,52 @@ export function isNativeLink(url) {
   }
 }
 
+/** Expands an IPv6 address to 8 numbers (handles :: and a trailing dotted IPv4 part). */
+function ipv6Parts(ip) {
+  let v = ip.toLowerCase().split('%')[0];
+  const dotted = /(\d+\.\d+\.\d+\.\d+)$/.exec(v);
+  if (dotted) {
+    const [a, b, c, d] = dotted[1].split('.').map(Number);
+    v = v.slice(0, -dotted[1].length) + `${((a << 8) | b).toString(16)}:${((c << 8) | d).toString(16)}`;
+  }
+  const [head, tail] = v.split('::');
+  const h = head ? head.split(':') : [];
+  const t = tail !== undefined && tail ? tail.split(':') : [];
+  const fill = v.includes('::') ? Array(8 - h.length - t.length).fill('0') : [];
+  return [...h, ...fill, ...t].map((x) => Number.parseInt(x || '0', 16));
+}
+
+/** Loopback, private, link-local, carrier-grade NAT, multicast, reserved... anything not on the public internet. */
 function isPrivateAddress(ip) {
   if (net.isIPv4(ip)) {
-    const [a, b] = ip.split('.').map(Number);
-    return a === 10 || a === 127 || a === 0 || (a === 169 && b === 254) || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168) || (a === 100 && b >= 64 && b <= 127);
+    const [a, b, c] = ip.split('.').map(Number);
+    return (
+      a === 0 || a === 10 || a === 127 || a >= 224 || // this network, private, loopback, multicast + reserved
+      (a === 100 && b >= 64 && b <= 127) || // carrier-grade NAT
+      (a === 169 && b === 254) || // link-local
+      (a === 172 && b >= 16 && b <= 31) ||
+      (a === 192 && b === 168) ||
+      (a === 192 && b === 0 && (c === 0 || c === 2)) || // IETF, documentation
+      (a === 198 && (b === 18 || b === 19)) || // benchmarking
+      (a === 198 && b === 51 && c === 100) ||
+      (a === 203 && b === 0 && c === 113)
+    );
   }
-  const v = ip.toLowerCase();
-  if (v.startsWith('::ffff:')) return isPrivateAddress(v.slice(7));
-  return v === '::1' || v === '::' || v.startsWith('fc') || v.startsWith('fd') || v.startsWith('fe80');
+  if (!net.isIPv6(ip)) return true; // not an address we understand: don't allow it
+  const p = ipv6Parts(ip);
+  if (p.length !== 8 || p.some((x) => Number.isNaN(x))) return true;
+  const v4 = (hi, lo) => `${hi >> 8}.${hi & 255}.${lo >> 8}.${lo & 255}`;
+  const zeros = (n) => p.slice(0, n).every((x) => x === 0);
+  if (zeros(5) && p[5] === 0xffff) return isPrivateAddress(v4(p[6], p[7])); // IPv4-mapped (::ffff:a.b.c.d / ::ffff:7f00:1)
+  if (zeros(6)) return true; // ::, ::1 and the old IPv4-compatible form
+  if (p[0] === 0x64 && p[1] === 0xff9b) return isPrivateAddress(v4(p[6], p[7])); // NAT64
+  if (p[0] === 0x2002) return isPrivateAddress(v4(p[1], p[2])); // 6to4
+  return (
+    (p[0] & 0xfe00) === 0xfc00 || // unique local fc00::/7
+    (p[0] & 0xffc0) === 0xfe80 || // link-local fe80::/10
+    (p[0] & 0xff00) === 0xff00 || // multicast
+    (p[0] === 0x2001 && p[1] === 0x0db8) // documentation
+  );
 }
 
 /** Refuses links that point into private networks (your LAN, the container itself). */
@@ -177,7 +215,7 @@ function toItem(info, fallbackUrl) {
  * Single items also warm the stream cache so playback starts quickly.
  */
 export async function resolveLink(url, { maxItems = 500 } = {}) {
-  const info = await ytdlpJson(['-J', '--flat-playlist', '--no-warnings', '-f', 'bestaudio/best', '--playlist-end', String(maxItems), url]);
+  const info = await ytdlpJson(['-J', '--flat-playlist', '--no-warnings', '-f', 'bestaudio/best', '--playlist-end', String(maxItems), '--', url]);
   if (info._type === 'playlist' || Array.isArray(info.entries)) {
     const items = (info.entries ?? [])
       .filter((e) => e && (e.url || e.webpage_url))
@@ -192,7 +230,7 @@ export async function resolveLink(url, { maxItems = 500 } = {}) {
 
 /** Plain YouTube search through yt-dlp (backup for when Lavalink's yt-dlp search trips over a result). */
 export async function searchYoutube(query, limit = 5) {
-  const info = await ytdlpJson(['-J', '--flat-playlist', '--no-warnings', `ytsearch${limit}:${query}`]);
+  const info = await ytdlpJson(['-J', '--flat-playlist', '--no-warnings', '--', `ytsearch${limit}:${query}`]);
   return (info.entries ?? [])
     .filter((e) => e && (e.url || e.id))
     .map((e) =>
@@ -209,7 +247,7 @@ async function mediaFor(page) {
   const hit = cache.get(page);
   if (hit && hit.expires > Date.now()) return hit.media;
   if (inflight.has(page)) return inflight.get(page);
-  const job = ytdlpJson(['-J', '--no-playlist', '--no-warnings', '-f', 'bestaudio/best', page])
+  const job = ytdlpJson(['-J', '--no-playlist', '--no-warnings', '-f', 'bestaudio/best', '--', page])
     .then((info) => {
       remember(page, info);
       return cache.get(page)?.media ?? null;
@@ -244,11 +282,15 @@ const DIRECT_PROTOCOLS = new Set(['http', 'https', 'm3u8', 'm3u8_native']);
 
 function ffmpegArgs(input, headers, copyOpus = false) {
   const args = ['-nostdin', '-hide_banner', '-loglevel', 'error'];
+  // Header names/values come from the website (via yt-dlp): no line breaks, so they can't add headers.
+  const clean = (x) => String(x).replace(/[\r\n]+/g, ' ');
   const h = Object.entries(headers ?? {})
-    .filter(([k]) => !/^(accept-encoding|host)$/i.test(k))
-    .map(([k, v]) => `${k}: ${v}\r\n`)
+    .filter(([k]) => /^[A-Za-z0-9-]+$/.test(k) && !/^(accept-encoding|host)$/i.test(k))
+    .map(([k, v]) => `${k}: ${clean(v)}\r\n`)
     .join('');
   if (input !== 'pipe:0') {
+    // Only network protocols: a playlist from a website can't make ffmpeg read local files.
+    args.push('-protocol_whitelist', 'http,https,tcp,tls,crypto');
     if (h) args.push('-headers', h);
     args.push('-reconnect', '1', '-reconnect_streamed', '1', '-reconnect_delay_max', '5');
   }
@@ -271,8 +313,8 @@ function startPipeline(page, media) {
     // and fetches the exact format we know the codec of (Opus is then passed through untouched).
     const known = Boolean(media?.infoFile && media.formatId && existsSync(media.infoFile));
     const args = ['-q', '--no-warnings', '--no-playlist', '--http-chunk-size', '10M'];
-    args.push(...(known ? ['--load-info-json', media.infoFile, '-f', media.formatId] : ['-f', 'bestaudio/best', page]));
     args.push('-o', '-');
+    args.push(...(known ? ['--load-info-json', media.infoFile, '-f', media.formatId] : ['-f', 'bestaudio/best', '--', page]));
     const dl = spawn(YTDLP, args, { stdio: ['ignore', 'pipe', 'pipe'] });
     ffmpeg = spawn(FFMPEG, ffmpegArgs('pipe:0', null, known && media.acodec === 'opus'), { stdio: ['pipe', 'pipe', 'pipe'] });
     dl.stdout.pipe(ffmpeg.stdin).on('error', () => null);
@@ -373,6 +415,18 @@ async function handle(req, res) {
     // A block or a removed video won't get better by downloading through yt-dlp: fail right away.
     if (/sign in|not a bot|video unavailable|private video|has been removed|copyright|members-only|confirm your age|age-restricted/i.test(err.message)) {
       noteError(page, err.message);
+      res.writeHead(502).end();
+      return;
+    }
+  }
+
+  // The stream itself must be on the public internet too (a website could point yt-dlp anywhere).
+  if (media?.url) {
+    try {
+      await assertPublicUrl(media.url);
+    } catch {
+      log.warn(`[media] ${page}: the stream is on a private address; refusing it`);
+      noteError(page, 'The audio for this link is on a private address, so it was blocked.');
       res.writeHead(502).end();
       return;
     }
