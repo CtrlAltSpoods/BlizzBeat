@@ -17,6 +17,12 @@
   <ExtraParams>--stop-timeout 20 --dns 1.1.1.1 --log-opt max-size=10m --log-opt max-file=3</ExtraParams>
   <PostArgs/>
   <CPUset/>
+  <Date>1795437145</Date>
+  <Changes>### 2026.11.23
+- Stage channels: goes live without notifying everyone, becomes a speaker and shows the song as the topic
+- Input hardening, voice-only channel access, mood autoplay, favourites
+- Live streams reconnect by themselves; YouTube lives play through yt-dlp
+- Unraid update check fixed (Docker-style image manifests)</Changes>
   <DateInstalled/>
   <DonateText/>
   <DonateLink/>
